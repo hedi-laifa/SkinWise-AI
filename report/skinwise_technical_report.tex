@@ -1,0 +1,278 @@
+% ==============================================================================
+% SkinWise AI: End-to-End Deep Learning & MLOps Pipeline for Acne Severity Grading
+% Compile with: pdflatex skinwise_technical_report.tex
+% ==============================================================================
+\documentclass[11pt,a4paper]{article}
+
+% ------------------------------ Packages --------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsfonts,bm} % Mathematical equations & symbols
+\usepackage{graphicx}                    % Architecture diagrams & confusion matrices
+\usepackage{subcaption}                  % Side-by-side figures (e.g., RGB vs Grad-CAM)
+\usepackage{float}                       % Strict figure/table placement [H]
+\usepackage{booktabs}                    % Publication-quality tables
+\usepackage{multirow}                    % Multi-row cells in evaluation tables
+\usepackage{xcolor}                      % Custom colors for code & callouts
+\usepackage{listings}                    % Source code snippets
+\usepackage{hyperref}                    % Clickable cross-references & URLs
+\usepackage{enumitem}                    % Compact lists
+
+% -------------------------- Hyperref & Code Styling ---------------------------
+\definecolor{codebg}{RGB}{248,250,252}
+\definecolor{codeframe}{RGB}{203,213,225}
+\definecolor{codekw}{RGB}{30,64,175}
+\definecolor{codecomment}{RGB}{100,116,139}
+\definecolor{codestr}{RGB}{4,120,87}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=codekw,
+    citecolor=codekw,
+    urlcolor=codekw,
+    pdftitle={SkinWise AI: MLOps and Deep Learning Technical Report}
+}
+
+\lstdefinestyle{skinwisestyle}{
+    backgroundcolor=\color{codebg},
+    frame=single,
+    rulecolor=\color{codeframe},
+    basicstyle=\ttfamily\footnotesize,
+    keywordstyle=\color{codekw}\bfseries,
+    commentstyle=\color{codecomment}\itshape,
+    stringstyle=\color{codestr},
+    breaklines=true,
+    showstringspaces=false,
+    numbers=left,
+    numberstyle=\tiny\color{codecomment},
+    captionpos=b
+}
+\lstset{style=skinwisestyle}
+
+% --------------------------- Document Metadata --------------------------------
+\title{
+    \textbf{SkinWise AI: An End-to-End MLOps and Explainable Deep Learning System for Automated Acne Severity Grading on the ACNE04 Benchmark}
+}
+\author{
+    \textbf{[Your Full Name]} \\
+    Department of Computer Science \& Artificial Intelligence \\
+    \texttt{[your.email@university.edu]}
+}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+% ==============================================================================
+% ABSTRACT
+% ==============================================================================
+\begin{abstract}
+\noindent
+Automated dermatological grading of acne vulgaris requires both high diagnostic accuracy across imbalanced severity levels and production-grade Machine Learning Operations (MLOps) reproducibility. In this report, we present \textbf{SkinWise AI}, a decoupled full-stack computer vision system designed to classify facial dermatological images into the four clinical Hayashi severity grades of the ACNE04 dataset (\textit{Mild}, \textit{Moderate}, \textit{Severe}, and \textit{Very Severe}). Our pipeline fine-tunes an ImageNet-pretrained \textbf{EfficientNet-B0} backbone using strict split-before-transform data isolation to prevent data leakage, tracks all hyperparameters and validation metrics via \textbf{MLflow}, versions raw image datasets via \textbf{Data Version Control (DVC)}, and exports the highest Macro-F1 checkpoint (\texttt{best\_model.pth}) into a static \textbf{ONNX} computation graph (\texttt{best\_model.onnx}). For clinical interpretability, we derive mathematical \textbf{Gradient-weighted Class Activation Mapping (Grad-CAM)} saliency maps from the final convolutional stage. The complete system is served via an asynchronous \textbf{FastAPI + ONNX Runtime} microservice paired with a \textbf{React/Vite} diagnostic interface, orchestrated via \textbf{Docker Compose} and continuously verified by a \textbf{GitHub Actions CI/CD} pipeline.
+
+\medskip
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- Abstract Summary Metrics]:} Insert your final best Validation/Test Macro-F1 score (e.g., $\text{Macro-F1} = 0.84$), overall classification accuracy (e.g., $86.2\%$), and average CPU ONNX Runtime inference latency in milliseconds (e.g., $12.4\text{ ms}$ per image).}
+\end{abstract}
+
+\vspace{0.5em}
+\hrule
+\vspace{1em}
+
+% ==============================================================================
+% 1. INTRODUCTION
+% ==============================================================================
+\section{Introduction}
+\label{sec:introduction}
+Clinical assessment of acne vulgaris severity traditionally relies on manual lesion counting and subjective visual grading scales such as the Hayashi criterion, leading to inter-observer variability among dermatologists. While deep convolutional neural networks (CNNs) offer objective, rapid grading, academic prototypes frequently fail in production due to unversioned datasets, untracked hyperparameter experiments, data leakage between training and validation splits, and opaque ``black-box'' predictions.
+
+\textbf{SkinWise AI} addresses these challenges by uniting deep transfer learning with strict MLOps engineering standards. Specifically, our contributions cover four pillars required by the grading rubric:
+\begin{enumerate}[noitemsep,topsep=2pt]
+    \item \textbf{Leak-Free Data \& Version Control:} Deterministic stratified splitting prior to augmentation and strict dataset tracking via DVC (\texttt{data/raw.dvc}) with zero raw images or weights committed to Git.
+    \item \textbf{Reproducible Fine-Tuning \& Explainability:} Transfer learning on \texttt{EfficientNet-B0} optimized via \texttt{AdamW} and \texttt{CrossEntropyLoss}, tracked with MLflow, and explained via mathematical Grad-CAM.
+    \item \textbf{High-Throughput Decoupled Serving:} Export of PyTorch weights to an ONNX graph served asynchronously by FastAPI and consumed by a modern React/Tailwind CSS frontend.
+    \item \textbf{Automated QA \& Container Orchestration:} Unit testing via \texttt{pytest}, linting via \texttt{flake8} in GitHub Actions, and single-command deployment via \texttt{docker-compose up --build}.
+\end{enumerate}
+
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- Clinical \& Dataset Context]:} Briefly describe the ACNE04 dataset distribution here (total number of images across \texttt{acne0\_1024} through \texttt{acne3\_1024}) and explain why class imbalance makes Macro-F1 a superior primary evaluation metric compared to raw accuracy.}
+
+% ==============================================================================
+% 2. SYSTEM ARCHITECTURE (DECOUPLED FASTAPI + REACT)
+% ==============================================================================
+\section{System Architecture}
+\label{sec:architecture}
+SkinWise AI adopts a decoupled microservice architecture separating the presentation layer (\textbf{React 18 + Vite + Tailwind CSS} on port \texttt{5173}) from the inference layer (\textbf{FastAPI + ONNX Runtime} on port \texttt{8000}). Decoupling PyTorch training from ONNX Runtime serving reduces container image footprint and eliminates Python Global Interpreter Lock (GIL) bottlenecks during forward passes.
+
+\begin{figure}[H]
+    \centering
+    % Uncomment and replace with your exported architecture diagram:
+    % \includegraphics[width=0.92\textwidth]{figures/system_architecture.png}
+    \fbox{\parbox{0.9\textwidth}{\centering\vspace{2.2em}
+        \textbf{[Figure Placeholder: Insert System Architecture Diagram (\texttt{figures/system\_architecture.png})]} \\
+        \footnotesize Show: DVC Dataset $\rightarrow$ PyTorch EfficientNet-B0 + MLflow $\rightarrow$ \texttt{best\_model.onnx} $\rightarrow$ FastAPI (\texttt{/health}, \texttt{/model/metadata}, \texttt{/predict}, \texttt{/predict/visualize}) $\leftrightarrow$ React/Vite UI (Port 5173).\vspace{2.2em}
+    }}
+    \caption{End-to-end decoupled architecture of the SkinWise AI training and inference platform.}
+    \label{fig:architecture}
+\end{figure}
+
+The FastAPI backend enforces strict Pydantic v2 response contracts (\texttt{backend/app/schemas.py}) across four asynchronous (\texttt{async def}) REST endpoints:
+\begin{itemize}[noitemsep,topsep=2pt]
+    \item \texttt{GET /health}: Reports service readiness (\texttt{healthy} vs.\ \texttt{degraded}) and verifies whether the \texttt{onnxruntime.InferenceSession} is loaded in memory.
+    \item \texttt{GET /model/metadata}: Returns the backbone architecture (\texttt{"EfficientNet-B0"}), input tensor shape ($[1, 3, 224, 224]$), and the four canonical ACNE04 class labels.
+    \item \texttt{POST /predict}: Validates uploaded \texttt{multipart/form-data} files (rejecting non-JPEG/PNG payloads with HTTP \texttt{400}), applies deterministic $224 \times 224$ bilinear resizing and ImageNet normalization, executes the ONNX graph, and returns the predicted class, posterior softmax probabilities, and execution latency in milliseconds.
+    \item \texttt{POST /predict/visualize}: Computes the mathematical Grad-CAM activation overlay and returns a binary \texttt{image/png} stream.
+\end{itemize}
+
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- UI \& API Screenshots]:} Insert a screenshot of the React/Vite UI showing the 4 horizontal probability progress bars and latency badge, alongside a screenshot of the FastAPI Swagger documentation at \url{http://localhost:8000/docs}.}
+
+% ==============================================================================
+% 3. MLOPS LIFECYCLE (DVC, MLFLOW, DOCKER COMPOSE, CI/CD)
+% ==============================================================================
+\section{MLOps Lifecycle and Reproducibility}
+\label{sec:mlops}
+
+\subsection{Data Version Control (DVC) and Git Hygiene}
+To satisfy strict academic and industry MLOps requirements, raw dermatological images (\texttt{data/raw/acne\_1024}) and serialized model artifacts (\texttt{*.pth}, \texttt{*.onnx}, \texttt{mlruns/}) are explicitly blocked by \texttt{.gitignore}. Dataset versioning is managed via \textbf{DVC}: executing \texttt{dvc add data/raw} hashes the directory contents into \texttt{.dvc/cache} and generates a lightweight YAML pointer file (\texttt{data/raw.dvc}). Only \texttt{data/raw.dvc} and \texttt{.gitignore} are committed to Git, guaranteeing lightweight repository clones while preserving exact dataset lineage.
+
+\subsection{Experiment Tracking with MLflow}
+During fine-tuning (\texttt{src/models/train.py}), every training run is wrapped in an \texttt{mlflow.start\_run()} context under the \texttt{SkinWise-ACNE04-EfficientNetB0} experiment. We automatically log all hyperparameters (\texttt{learning\_rate}, \texttt{batch\_size}, \texttt{epochs}, \texttt{weight\_decay}, \texttt{dropout}, \texttt{seed}) and per-epoch training and validation metrics (\texttt{train\_loss}, \texttt{val\_loss}, \texttt{val\_accuracy}, and \texttt{val\_macro\_f1}), as well as the exported \texttt{best\_model.pth} and \texttt{best\_model.onnx} artifacts.
+
+\subsection{Containerization and CI/CD Automation}
+Full-stack orchestration is defined in \texttt{docker-compose.yml}, joining \texttt{skinwise-backend} (\texttt{python:3.11-slim}) and \texttt{skinwise-frontend} (\texttt{node:20-alpine}) on an isolated bridge network (\texttt{skinwise-net}) with automated container healthchecks. Continuous Integration is enforced via GitHub Actions (\texttt{.github/workflows/ci.yml}), which provisions Python 3.11 on every push, lints the codebase with \texttt{flake8}, and executes the automated \texttt{pytest} suite (\texttt{backend/tests/test\_api.py}).
+
+\begin{lstlisting}[language=bash,caption={DVC initialization and leak-free Git staging workflow (\texttt{setup\_dvc.sh}).}]
+mv acne_1024 data/raw/
+dvc init && dvc add data/raw
+git add .gitignore .dvc/.gitignore .dvc/config .dvcignore data/.gitignore data/raw.dvc
+git commit -m "chore(dvc): track data/raw pointer with DVC without committing raw data"
+\end{lstlisting}
+
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- MLOps Evidence]:} Insert (1) a screenshot of the MLflow UI comparing at least two hyperparameter runs (e.g., $\text{lr}=10^{-4}$ vs.\ $\text{lr}=5\times 10^{-4}$), (2) terminal output of \texttt{git status} proving \texttt{data/raw.dvc} is tracked while raw images are ignored, and (3) a screenshot of a passing GitHub Actions CI workflow run.}
+
+% ==============================================================================
+% 4. MODEL TRAINING (EFFICIENTNET-B0 & GRAD-CAM)
+% ==============================================================================
+\section{Deep Learning Methodology and Explainability}
+\label{sec:training}
+
+\subsection{Leak-Free Data Pipeline and Augmentation}
+A common pitfall in medical imaging pipelines is applying random data augmentation prior to splitting or including duplicate auxiliary directories. In \texttt{src/data/dataset.py}, we explicitly exclude duplicate folders (\texttt{all\_1024}, \texttt{small\_1024}) and perform a deterministic stratified split ($70\%$ train, $15\%$ validation, $15\%$ test) \textit{before} instantiating \texttt{ACNE04Dataset}. The training split applies resizing to $224 \times 224$, random horizontal flipping ($p=0.5$), random rotation ($\pm 15^\circ$), and ImageNet normalization ($\bm{\mu}=[0.485, 0.456, 0.406]$, $\bm{\sigma}=[0.229, 0.224, 0.225]$), whereas the validation and test splits apply \textbf{only} deterministic resizing to $224 \times 224$ and ImageNet normalization.
+
+\subsection{EfficientNet-B0 Fine-Tuning}
+We employ transfer learning using an ImageNet-1K pretrained \textbf{EfficientNet-B0} backbone (\texttt{src/models/classifier.py}). The default $1000$-class classification head is replaced with a regularized 4-class linear projection head:
+\begin{equation}
+    \hat{\bm{y}} = \text{Linear}_{1280 \to 4}\!\left(\text{Dropout}_{p=0.2}\!\left(\text{GlobalAvgPool}(\bm{A})\right)\right) \in \mathbb{R}^4
+\end{equation}
+The network is trained end-to-end using the \texttt{AdamW} optimizer ($\eta = 10^{-4}$, $\lambda = 10^{-2}$) minimizing multi-class cross-entropy loss:
+\begin{equation}
+    \mathcal{L}_{\text{CE}}(\bm{y}, \hat{\bm{y}}) = -\sum_{c=0}^{3} y_c \log \left( \frac{\exp(\hat{y}_c)}{\sum_{j=0}^{3} \exp(\hat{y}_j)} \right)
+\end{equation}
+
+\subsection{Mathematical Grad-CAM Formulation}
+To provide transparent visual explanations (\texttt{src/utils/gradcam.py}), we hook into the final convolutional feature maps $\bm{A}^k \in \mathbb{R}^{H \times W}$ ($k \in \{1,\dots,1280\}$) of \texttt{model.features[-1]}. For a predicted severity class $c$ with pre-softmax logit $y^c$, we compute the channel-wise importance weights $\alpha_k^c$ via global average pooling of the backpropagated gradients:
+\begin{equation}
+    \alpha_k^c = \frac{1}{H \cdot W} \sum_{i=1}^{H} \sum_{j=1}^{W} \frac{\partial y^c}{\partial A_{i,j}^k}
+\end{equation}
+The class-discriminative localization map $L_{\text{Grad-CAM}}^c \in \mathbb{R}^{H \times W}$ is then obtained by a weighted linear combination followed by a ReLU nonlinearity to isolate features that positively correlate with severity class $c$:
+\begin{equation}
+    L_{\text{Grad-CAM}}^c = \text{ReLU}\!\left( \sum_{k=1}^{1280} \alpha_k^c \bm{A}^k \right)
+\end{equation}
+Finally, $L_{\text{Grad-CAM}}^c$ is upsampled via bilinear interpolation to $224 \times 224$, normalized to $[0, 1]$, mapped to a Jet colormap, and alpha-blended ($\alpha = 0.45$) onto the original RGB photograph.
+
+% ==============================================================================
+% 5. EXPERIMENTAL EVALUATION
+% ==============================================================================
+\section{Experimental Evaluation}
+\label{sec:evaluation}
+Because dermatological severity classes exhibit natural imbalance, we evaluate model selection primarily using the unweighted \textbf{Macro-F1} score alongside overall classification accuracy:
+\begin{equation}
+    \text{Macro-F1} = \frac{1}{4} \sum_{c=0}^{3} \frac{2 \cdot \text{Precision}_c \cdot \text{Recall}_c}{\text{Precision}_c + \text{Recall}_c}
+\end{equation}
+
+\begin{table}[H]
+    \centering
+    \caption{Quantitative classification performance across the 4 ACNE04 severity classes.}
+    \label{tab:metrics}
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{ACNE04 Severity Class} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} & \textbf{Support} \\
+        \midrule
+        Class 0: Mild (Level 0)        & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[N0]} \\
+        Class 1: Moderate (Level 1)    & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[N1]} \\
+        Class 2: Severe (Level 2)      & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[N2]} \\
+        Class 3: Very Severe (Level 3) & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[0.XX]} & \texttt{[N3]} \\
+        \midrule
+        \textbf{Overall Accuracy}      & \multicolumn{3}{c}{\texttt{[0.XX]}}               & \texttt{[N\_total]} \\
+        \textbf{Macro Average (Primary Metric)} & \textbf{\texttt{[0.XX]}} & \textbf{\texttt{[0.XX]}} & \textbf{\texttt{[0.XX]}} & \texttt{[N\_total]} \\
+        \bottomrule
+    \end{tabular}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}[b]{0.47\textwidth}
+        \centering
+        % \includegraphics[width=\textwidth]{figures/confusion_matrix.png}
+        \fbox{\parbox{0.92\textwidth}{\centering\vspace{3em}
+            \textbf{[Insert 4x4 Confusion Matrix]} \\
+            \footnotesize \texttt{figures/confusion\_matrix.png}\vspace{3em}
+        }}
+        \caption{Test Set Confusion Matrix.}
+        \label{fig:cm}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[b]{0.47\textwidth}
+        \centering
+        % \includegraphics[width=\textwidth]{figures/gradcam_comparison.png}
+        \fbox{\parbox{0.92\textwidth}{\centering\vspace{3em}
+            \textbf{[Insert Original vs.\ Grad-CAM Overlay]} \\
+            \footnotesize \texttt{figures/gradcam\_comparison.png}\vspace{3em}
+        }}
+        \caption{Grad-CAM Localization on Inflammatory Lesions.}
+        \label{fig:gradcam}
+    \end{subfigure}
+    \caption{Diagnostic evaluation: (a) 4-class confusion matrix and (b) mathematical Grad-CAM activation overlay.}
+    \label{fig:eval_visuals}
+\end{figure}
+
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- Evaluation Analysis]:} Populate Table~\ref{tab:metrics} with your logged metrics from MLflow. Discuss which adjacent severity classes (e.g., Moderate Level 1 vs.\ Severe Level 2) show the most off-diagonal confusion in Figure~\ref{fig:cm}, and report the inference latency speedup achieved by exporting \texttt{best\_model.pth} to \texttt{best\_model.onnx} under ONNX Runtime.}
+
+% ==============================================================================
+% 6. CONCLUSION
+% ==============================================================================
+\section{Conclusion and Future Work}
+\label{sec:conclusion}
+In this work, we designed, trained, and containerized \textbf{SkinWise AI}, a production-ready dermatological severity grading system on the ACNE04 benchmark. By combining leak-free PyTorch data pipelines, EfficientNet-B0 transfer learning, mathematical Grad-CAM explainability, and an end-to-end MLOps stack (DVC, MLflow, ONNX Runtime, FastAPI, React, Docker Compose, and GitHub Actions CI/CD), our system bridges the gap between academic deep learning experimentation and reliable clinical software engineering.
+
+\medskip
+\noindent
+\textit{\textbf{[RUBRIC PLACEHOLDER --- Future Directions]:} Mention 1--2 concrete extensions for your defense Q\&A, such as (1) integrating joint lesion bounding-box detection alongside global severity grading, or (2) quantizing \texttt{best\_model.onnx} to INT8 for sub-5ms mobile/edge deployment.}
+
+% ==============================================================================
+% REFERENCES
+% ==============================================================================
+\begin{thebibliography}{9}
+
+\bibitem{wu2019acne04}
+X.~Wu, N.~Wen, J.~Liang, Y.-K.~Lai, D.~She, M.-M.~Cheng, and J.~Yang,
+``Joint Acne Image Grading and Counting via Label Distribution Learning,''
+in \emph{Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)}, 2019, pp.~10642--10651.
+
+\bibitem{tan2019efficientnet}
+M.~Tan and Q.~V.~Le,
+``EfficientNet: Rethinking Model Scaling for Convolutional Neural Networks,''
+in \emph{Proceedings of the International Conference on Machine Learning (ICML)}, 2019, pp.~6105--6114.
+
+\bibitem{selvaraju2017gradcam}
+R.~R.~Selvaraju, M.~Cogswell, A.~Das, R.~Vedantam, D.~Parikh, and D.~Batra,
+``Grad-CAM: Visual Explanations from Deep Networks via Gradient-based Localization,''
+in \emph{Proceedings of the IEEE International Conference on Computer Vision (ICCV)}, 2017, pp.~618--626.
+
+\end{thebibliography}
+
+\end{document}

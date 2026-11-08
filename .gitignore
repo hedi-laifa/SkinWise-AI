@@ -1,0 +1,70 @@
+# ==============================================================================
+# SkinWise AI - Strict MLOps .gitignore
+# ==============================================================================
+
+# 1. Data directories (tracked via DVC, never Git)
+# Ignore everything inside data/, except DVC pointer files (.dvc) and .gitignore
+/data/**
+!/data/
+!/data/**/*.dvc
+!/data/**/.gitignore
+
+# Also ignore existing raw dataset files if still in project root
+/acne_1024/
+/sim_acne.csv
+
+# 2. Model weights & serialized artifacts (explicitly blocked in src/, backend/, and globally)
+src/**/*.pth
+src/**/*.onnx
+backend/**/*.pth
+backend/**/*.onnx
+*.pth
+*.pt
+*.onnx
+*.ckpt
+*.h5
+*.safetensors
+
+# 3. MLflow & Experiment Tracking
+mlruns/
+mlartifacts/
+.dvc/tmp/
+.dvc/cache/
+
+# 4. Python Virtual Environments
+venv/
+.venv/
+env/
+.env/
+ENV/
+
+# 5. Python Bytecode & Packaging
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# 6. Frontend dependencies & build artifacts
+node_modules/
+frontend/dist/
+
+# 7. Testing, Linting & IDE
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.vscode/
+.idea/
+*.swp
+
+# 8. Environment Secrets & OS files
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db

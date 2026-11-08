@@ -1,0 +1,57 @@
+# ==============================================================================
+# SkinWise AI - Full-Stack Docker Compose Orchestration (with Hot-Reloading)
+# Launch with: docker-compose up --build
+# ==============================================================================
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+      target: runtime
+    container_name: skinwise-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - ONNX_MODEL_PATH=/app/backend/app/best_model.onnx
+    volumes:
+      - ./backend:/app/backend
+      - ./src:/app/src
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - skinwise-net
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: skinwise-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+      - BACKEND_INTERNAL_URL=http://backend:8000
+      - CHOKIDAR_USEPOLLING=true
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - skinwise-net
+    restart: unless-stopped
+
+networks:
+  skinwise-net:
+    driver: bridge

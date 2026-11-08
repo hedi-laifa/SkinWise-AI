@@ -1,0 +1,38 @@
+name: SkinWise AI - CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main", "master", "**"]
+  pull_request:
+    branches: ["main", "master"]
+
+jobs:
+  lint-and-test:
+    name: Lint (flake8) & Unit Tests (pytest)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          pip install pytest httpx flake8
+
+      - name: Run code linting with flake8
+        run: |
+          flake8 backend src --max-line-length=120 --extend-ignore=E203,W503
+
+      - name: Execute FastAPI pytest suite
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: |
+          pytest backend/tests/test_api.py -v
