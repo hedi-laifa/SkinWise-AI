@@ -9,6 +9,7 @@ from typing import Dict, List, Sequence, Tuple
 
 import mlflow
 import mlflow.pytorch
+from mlflow.client import MlflowClient
 import onnx
 import torch
 import torch.nn as nn
@@ -50,6 +51,7 @@ class TrainingConfig:
     experiment_name: str = "SkinWise-ACNE04-EfficientNetB0"
     run_name: str = "Advanced-EfficientNetB0"
     tracking_uri: str = "mlruns"
+    registered_model_name: str = "SkinWise-EfficientNetB0-ACNE04"
 
 
 def set_seed(seed: int = 42) -> None:
@@ -422,7 +424,93 @@ def train_model(
                 )
                 mlflow.log_artifact(str(onnx_path), artifact_path="onnx")
 
+        # Register best model in the MLflow Model Registry and promote to Production
+        run_id = mlflow.active_run().info.run_id
+        model_uri = f"runs:/{run_id}/checkpoints/{best_model_path.name}"
+        registered_version = _register_and_promote(
+            tracking_uri=config.tracking_uri,
+            model_uri=model_uri,
+            registered_model_name=config.registered_model_name,
+            best_val_f1=best_val_f1,
+            best_val_acc=best_val_acc,
+        )
+        logger.info(
+            "Registered model '%s' version %s as Production (Val Macro-F1: %.4f).",
+            config.registered_model_name,
+            registered_version,
+            best_val_f1,
+        )
+
     return model, best_val_f1, best_model_path
+
+
+def _register_and_promote(
+    tracking_uri: str,
+    model_uri: str,
+    registered_model_name: str,
+    best_val_f1: float,
+    best_val_acc: float,
+) -> str:
+    """Register a run artifact in the MLflow Model Registry and transition it to Production.
+
+    Any existing Production version is demoted to Staging before the new version
+    is promoted, so the registry always has exactly one Production model.
+
+    Returns:
+        The new model version string (e.g. "3").
+    """
+    client = MlflowClient(tracking_uri=tracking_uri)
+
+    # Ensure the registered model entry exists (no-op if already created)
+    try:
+        client.create_registered_model(
+            name=registered_model_name,
+            description=(
+                "EfficientNet-B0 fine-tuned on ACNE04 for 4-class acne severity grading. "
+                "Exported to ONNX Runtime for FastAPI inference."
+            ),
+        )
+        logger.info("Created new registered model '%s'.", registered_model_name)
+    except Exception:
+        pass  # Model already exists in the registry
+
+    # Create a new model version from the run artifact
+    mv = client.create_model_version(
+        name=registered_model_name,
+        source=model_uri,
+        tags={
+            "best_val_macro_f1": f"{best_val_f1:.4f}",
+            "best_val_accuracy": f"{best_val_acc:.4f}",
+            "framework": "PyTorch + ONNX Runtime",
+            "architecture": "EfficientNet-B0",
+            "dataset": "ACNE04",
+        },
+    )
+    new_version = mv.version
+
+    # Demote any current Production versions to Staging before promoting the new one
+    for existing in client.search_model_versions(f"name='{registered_model_name}'"):
+        if existing.current_stage == "Production" and existing.version != new_version:
+            client.transition_model_version_stage(
+                name=registered_model_name,
+                version=existing.version,
+                stage="Staging",
+                archive_existing_versions=False,
+            )
+            logger.info(
+                "Demoted previous Production version %s to Staging.",
+                existing.version,
+            )
+
+    # Promote the new version to Production
+    client.transition_model_version_stage(
+        name=registered_model_name,
+        version=new_version,
+        stage="Production",
+        archive_existing_versions=False,
+    )
+
+    return new_version
 
 
 def parse_args(argv: Sequence[str] | None = None) -> TrainingConfig:
