@@ -59,6 +59,29 @@ def resolve_default_onnx_path() -> str:
 
 DEFAULT_ONNX_PATH: str = resolve_default_onnx_path()
 
+_GPU_PROVIDERS = frozenset(
+    ["CUDAExecutionProvider", "ROCMExecutionProvider", "DmlExecutionProvider"]
+)
+
+
+def detect_gpu() -> tuple[bool, Optional[str]]:
+    """Return (gpu_available, device_name) based on ONNX Runtime available providers."""
+    available = set(ort.get_available_providers())
+    gpu_available = bool(available & _GPU_PROVIDERS)
+    device_name: Optional[str] = None
+    if gpu_available:
+        try:
+            import torch  # optional — only present in training env
+            if torch.cuda.is_available():
+                device_name = torch.cuda.get_device_name(0)
+        except Exception:
+            pass
+        if device_name is None:
+            # Identify the active GPU provider as a fallback label
+            active = next(iter(available & _GPU_PROVIDERS))
+            device_name = active.replace("ExecutionProvider", "")
+    return gpu_available, device_name
+
 
 def load_onnx_session(model_path: str | Path) -> Optional[ort.InferenceSession]:
     """Load an ONNX Runtime InferenceSession if the model file exists on disk."""
@@ -236,10 +259,13 @@ async def health_check(request: Request) -> HealthResponse:
         request.app.state.ort_session = session
 
     is_loaded = session is not None
+    gpu_available, gpu_device = detect_gpu()
     return HealthResponse(
         status="healthy" if is_loaded else "degraded",
         model_loaded=is_loaded,
         onnx_model_path=str(onnx_path),
+        gpu_available=gpu_available,
+        gpu_device=gpu_device,
     )
 
 

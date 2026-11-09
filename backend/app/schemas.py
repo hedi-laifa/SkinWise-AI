@@ -1,6 +1,6 @@
 """Strict Pydantic v2 response schemas for the SkinWise AI FastAPI backend."""
 
-from typing import Dict, List, Literal
+from typing import Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -14,6 +14,8 @@ class HealthResponse(BaseModel):
                 "status": "healthy",
                 "model_loaded": True,
                 "onnx_model_path": "backend/app/model.onnx",
+                "gpu_available": False,
+                "gpu_device": None,
             }
         },
     )
@@ -29,6 +31,14 @@ class HealthResponse(BaseModel):
     onnx_model_path: str = Field(
         ...,
         description="Configured filesystem path to the ONNX model artifact.",
+    )
+    gpu_available: bool = Field(
+        ...,
+        description="Whether a CUDA/ROCm/DirectML GPU execution provider is available to ONNX Runtime.",
+    )
+    gpu_device: Optional[str] = Field(
+        default=None,
+        description="GPU device name (e.g. 'NVIDIA GeForce RTX 3080') when available, else null.",
     )
 
 

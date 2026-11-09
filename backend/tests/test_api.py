@@ -57,6 +57,9 @@ def test_health_endpoint_returns_200(client: TestClient) -> None:
     assert payload["status"] == "healthy"
     assert payload["model_loaded"] is True
     assert "onnx_model_path" in payload
+    assert "gpu_available" in payload
+    assert isinstance(payload["gpu_available"], bool)
+    assert "gpu_device" in payload
 
 
 def test_model_metadata_returns_expected_classes(client: TestClient) -> None:
