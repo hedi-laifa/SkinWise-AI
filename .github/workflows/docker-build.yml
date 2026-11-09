@@ -1,0 +1,120 @@
+name: SkinWise AI - Docker Build Pipeline
+
+on:
+  push:
+    branches: ["main", "master"]
+    paths:
+      - "backend/**"
+      - "src/**"
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/docker-build.yml"
+  pull_request:
+    branches: ["main", "master"]
+    paths:
+      - "backend/**"
+      - "src/**"
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/docker-build.yml"
+
+jobs:
+  build-backend:
+    name: Build Backend Docker Image (FastAPI + ONNX Runtime)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image (multi-stage)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: backend/Dockerfile
+          target: runtime
+          push: false
+          tags: skinwise-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test backend container
+        run: |
+          docker run --rm -d \
+            --name skinwise-backend-test \
+            -p 8000:8000 \
+            -e ONNX_MODEL_PATH=/app/backend/app/best_model.onnx \
+            skinwise-backend:ci
+          sleep 8
+          curl --fail --retry 3 --retry-delay 2 http://localhost:8000/health || \
+            (docker logs skinwise-backend-test && exit 1)
+          docker stop skinwise-backend-test
+
+  build-frontend:
+    name: Build Frontend Docker Image (React / Vite)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build frontend image (multi-stage)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: frontend/Dockerfile
+          target: runtime
+          push: false
+          tags: skinwise-frontend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  compose-integration:
+    name: Docker Compose Integration Test
+    runs-on: ubuntu-latest
+    needs: [build-backend, build-frontend]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build all services with docker-compose
+        run: docker compose build --no-cache
+
+      - name: Start services and wait for health
+        run: |
+          docker compose up -d
+          echo "Waiting for backend to become healthy..."
+          for i in $(seq 1 15); do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' skinwise-backend 2>/dev/null || echo "starting")
+            echo "  Attempt $i: $STATUS"
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Backend is healthy."
+              break
+            fi
+            sleep 4
+          done
+
+      - name: Verify /health endpoint responds
+        run: |
+          curl --fail --silent --show-error http://localhost:8000/health | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); print(d); assert 'status' in d"
+
+      - name: Verify /model/metadata endpoint responds
+        run: |
+          curl --fail --silent --show-error http://localhost:8000/model/metadata | \
+            python3 -c "import sys,json; d=json.load(sys.stdin); assert d['num_classes']==4"
+
+      - name: Print container logs on failure
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down services
+        if: always()
+        run: docker compose down
