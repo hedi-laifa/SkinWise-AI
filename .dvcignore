@@ -1,0 +1,37 @@
+# DVC ignore file — patterns listed here are excluded from DVC tracking
+
+# Python artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Jupyter / IPython
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE and OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Testing artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Frontend build
+node_modules/
+frontend/dist/
+
+# Experiment tracking (tracked by MLflow, not DVC)
+mlruns/
+mlartifacts/

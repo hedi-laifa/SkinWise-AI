@@ -1,0 +1,41 @@
+stages:
+  prepare:
+    cmd: python src/data/dataset.py
+    deps:
+      - acne_1024
+      - src/data/dataset.py
+    outs:
+      - data/processed
+
+  train:
+    cmd: python src/models/train.py --data-dir acne_1024 --epochs 15 --batch-size 32
+    deps:
+      - acne_1024
+      - src/models/train.py
+      - src/models/classifier.py
+      - src/data/dataset.py
+    params:
+      - params.yaml:
+          - train.epochs
+          - train.batch_size
+          - train.learning_rate
+          - train.weight_decay
+          - train.seed
+    outs:
+      - best_model.pth:
+          cache: true
+    metrics:
+      - metrics.json:
+          cache: false
+
+  export_onnx:
+    cmd: python -c "from src.models.train import export_model_to_onnx; export_model_to_onnx('best_model.pth', 'best_model.onnx', 'backend/app/best_model.onnx')"
+    deps:
+      - best_model.pth
+      - src/models/train.py
+      - src/models/classifier.py
+    outs:
+      - best_model.onnx:
+          cache: true
+      - backend/app/best_model.onnx:
+          cache: false

@@ -1,0 +1,10 @@
+train:
+  epochs: 15
+  batch_size: 32
+  learning_rate: 0.0001
+  weight_decay: 0.01
+  seed: 42
+  dropout: 0.2
+  freeze_backbone: false
+  pretrained: true
+  num_classes: 4
