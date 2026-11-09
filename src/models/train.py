@@ -50,7 +50,7 @@ class TrainingConfig:
     backend_onnx_path: Path = Path("backend/app/best_model.onnx")
     experiment_name: str = "SkinWise-ACNE04-EfficientNetB0"
     run_name: str = "Advanced-EfficientNetB0"
-    tracking_uri: str = "mlruns"
+    tracking_uri: str = "sqlite:///mlruns.db"
     registered_model_name: str = "SkinWise-EfficientNetB0-ACNE04"
 
 
@@ -239,6 +239,7 @@ def export_model_to_onnx(
             "input": {0: "batch_size"},
             "logits": {0: "batch_size"},
         },
+        dynamo=False,
     )
 
     # Validate the exported ONNX graph structure

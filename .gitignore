@@ -28,6 +28,8 @@ backend/**/*.onnx
 # 3. MLflow & Experiment Tracking
 mlruns/
 mlartifacts/
+mlruns.db
+mlruns_kaggle.db
 .dvc/tmp/
 .dvc/cache/
 
