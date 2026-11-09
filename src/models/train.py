@@ -18,7 +18,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from src.data.dataset import create_dataloaders
-from src.models.classifier import build_efficientnet_b0
+from src.models.architecture import build_efficientnet_b0
 
 try:
     from sklearn.metrics import accuracy_score as sk_accuracy_score

@@ -1,6 +1,6 @@
 """Models package for SkinWise AI."""
 
-from src.models.classifier import build_efficientnet_b0, load_trained_model
+from src.models.architecture import build_efficientnet_b0, load_trained_model
 from src.models.train import (
     TrainingConfig,
     compute_accuracy,

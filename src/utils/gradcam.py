@@ -18,7 +18,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from src.data.transforms import get_val_test_transforms
-from src.models.classifier import build_efficientnet_b0, load_trained_model
+from src.models.architecture import build_efficientnet_b0, load_trained_model
 
 
 class GradCAM:

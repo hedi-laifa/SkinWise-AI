@@ -12,7 +12,7 @@ stages:
     deps:
       - acne_1024
       - src/models/train.py
-      - src/models/classifier.py
+      - src/models/architecture.py
       - src/data/dataset.py
     params:
       - params.yaml:
@@ -33,7 +33,7 @@ stages:
     deps:
       - best_model.pth
       - src/models/train.py
-      - src/models/classifier.py
+      - src/models/architecture.py
     outs:
       - best_model.onnx:
           cache: true

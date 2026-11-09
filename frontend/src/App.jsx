@@ -1,10 +1,9 @@
 import React, { useState, useRef, useEffect } from "react";
-
-const API_BASE_URL =
-  (typeof import.meta !== "undefined" &&
-    import.meta.env &&
-    import.meta.env.VITE_API_BASE_URL) ||
-  "http://localhost:8000";
+import { checkHealth, predict, visualize } from "./services/api.js";
+import SeverityCard from "./components/SeverityCard.jsx";
+import ProbabilityBars from "./components/ProbabilityBars.jsx";
+import GradCamViewer from "./components/GradCamViewer.jsx";
+import WebcamCapture from "./components/WebcamCapture.jsx";
 
 const CLASS_ORDER = [
   "Mild (Level 0)",
@@ -104,17 +103,8 @@ export default function App() {
   const checkBackendHealth = async () => {
     setApiHealth((prev) => ({ ...prev, checking: true }));
     try {
-      const res = await fetch(`${API_BASE_URL}/health`);
-      if (res.ok) {
-        const data = await res.json();
-        setApiHealth({
-          checking: false,
-          online: true,
-          modelLoaded: Boolean(data.model_loaded),
-        });
-      } else {
-        setApiHealth({ checking: false, online: false, modelLoaded: false });
-      }
+      const data = await checkHealth();
+      setApiHealth({ checking: false, ...data });
     } catch {
       setApiHealth({ checking: false, online: false, modelLoaded: false });
     }
@@ -270,42 +260,14 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      const formData = new FormData();
-      formData.append("file", fileToAnalyze);
-
-      const response = await fetch(`${API_BASE_URL}/predict`, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!response.ok) {
-        let detail = `Server responded with HTTP ${response.status}`;
-        try {
-          const errJson = await response.json();
-          if (errJson?.detail) detail = errJson.detail;
-        } catch {
-          // Ignore JSON parse errors
-        }
-        throw new Error(detail);
-      }
-
-      const data = await response.json();
+      const data = await predict(fileToAnalyze);
       setPrediction(data);
       setApiHealth({ checking: false, online: true, modelLoaded: true });
 
       let generatedHeatmapUrl = null;
       try {
-        const vizFormData = new FormData();
-        vizFormData.append("file", fileToAnalyze);
-        const vizResponse = await fetch(`${API_BASE_URL}/predict/visualize`, {
-          method: "POST",
-          body: vizFormData,
-        });
-        if (vizResponse.ok) {
-          const blob = await vizResponse.blob();
-          generatedHeatmapUrl = URL.createObjectURL(blob);
-          setHeatmapUrl(generatedHeatmapUrl);
-        }
+        generatedHeatmapUrl = await visualize(fileToAnalyze);
+        setHeatmapUrl(generatedHeatmapUrl);
       } catch {
         // Keep prediction even if visualization endpoint fails
       }
