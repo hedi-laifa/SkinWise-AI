@@ -12,14 +12,14 @@ It pairs a leak-free **PyTorch + EfficientNet-B0** training pipeline (with **Res
 
 ## Key Features
 
-- **Leak-Free Data Pipeline (`src/data/`)**: Deterministic stratified train/val/test splitting (`70% / 15% / 15%`) performed strictly *before* applying augmentations, automatically excluding duplicate directories (`all_1024`, `small_1024`).
+- **Leak-Free Data Pipeline (`src/data/`)**: Deterministic stratified train/val/test splitting (`70% / 15% / 15%`) performed strictly *before* applying augmentations, automatically excluding duplicate directories (`all_1024`, `small_1024`). The split is written to `data/processed/{train,val,test}.csv` by the DVC `prepare` stage.
 - **Transfer Learning & Baseline Comparison (`src/models/`)**:
   - **Primary Model (`train.py`)**: Fine-tunes an ImageNet-pretrained `EfficientNet-B0` backbone with `AdamW` and `CrossEntropyLoss`, selecting checkpoints by validation **Macro-F1** and exporting to **ONNX** (`best_model.onnx`).
   - **Baseline Model (`train_baseline.py`)**: Trains a `ResNet-18` baseline under identical splits and logs directly to the shared MLflow experiment for side-by-side comparison.
 - **Explainable AI (`src/utils/gradcam.py`)**: Mathematical **Grad-CAM** activation mapping hooked into `model.features[-1]` to highlight inflammatory facial lesions driving the severity prediction.
 - **High-Throughput ONNX Serving (`backend/`)**: Asynchronous FastAPI microservice powered by `onnxruntime` (`CPUExecutionProvider`) with strict Pydantic v2 schemas and image validation.
 - **Interactive Diagnostic UI (`frontend/`)**: Responsive React 18 + Vite + Tailwind CSS v4 web interface featuring drag-and-drop image upload, 4-class confidence bars, inference latency metrics, and side-by-side Grad-CAM visualization.
-- **Full MLOps & CI/CD**: Containerized multi-service deployment (`docker-compose.yml`) and automated linting (`flake8`) + API test suite (`pytest`) via GitHub Actions (`.github/workflows/ci.yml`).
+- **Full MLOps & CI/CD**: Containerized multi-service deployment (`docker-compose.yml`) and automated linting (`flake8`) + API test suite (`pytest`) via GitHub Actions (`.github/workflows/ci-tests.yml` + `docker-build.yml`).
 
 ---
 
@@ -28,40 +28,62 @@ It pairs a leak-free **PyTorch + EfficientNet-B0** training pipeline (with **Res
 ```text
 SkinWise/
 ├── .github/workflows/
-│   └── ci.yml                        # GitHub Actions CI (flake8 linting + pytest)
-├── backend/
-│   ├── app/
-│   │   ├── main.py                   # FastAPI application & ONNX Runtime endpoints
-│   │   ├── schemas.py                # Pydantic v2 request/response contracts
-│   │   └── best_model.onnx           # Exported ONNX model graph for serving
-│   ├── tests/
-│   │   └── test_api.py               # Automated FastAPI unit & integration tests
-│   ├── Dockerfile                    # Multi-stage Python 3.11 FastAPI container
-│   └── requirements.txt              # Backend & testing Python dependencies
-├── frontend/
-│   ├── src/
-│   │   ├── App.jsx                   # React diagnostic dashboard & Grad-CAM viewer
-│   │   ├── main.jsx                  # React DOM entry point
-│   │   └── index.css                 # Tailwind CSS v4 entry stylesheet
-│   ├── Dockerfile                    # Node 20 Alpine Vite container
-│   ├── package.json                  # Frontend dependencies & scripts
-│   └── vite.config.js                # Vite server & proxy configuration
-├── report/
-│   └── skinwise_technical_report.tex # LaTeX technical report
-├── src/
+│   ├── ci-tests.yml                  # CI: flake8 linting + pytest
+│   └── docker-build.yml              # CI: Docker image builds + compose smoke test
+├── data/                             # Versioned with DVC, never committed to Git
+│   ├── raw/
+│   │   ├── acne_1024/                # ACNE04 images (acne0_1024 … acne3_1024)
+│   │   └── acne_1024.dvc             # DVC pointer file (committed)
+│   └── processed/                    # train.csv / val.csv / test.csv (DVC `prepare` stage)
+├── models/                           # Model artifacts (DVC outputs, git-ignored)
+│   ├── best_model.pth                # EfficientNet-B0 weights (trained on Kaggle GPU)
+│   └── best_model.onnx               # ONNX export used for evaluation
+├── src/                              # Deep Learning & MLOps source code
 │   ├── data/
-│   │   ├── dataset.py                # ACNE04 dataset loader & leak-free stratified split
-│   │   └── transforms.py             # Train & eval/inference torchvision transforms
+│   │   ├── dataset.py                # ACNE04 Dataset + leak-free stratified split
+│   │   └── transforms.py             # Train / eval torchvision transforms
 │   ├── models/
-│   │   ├── classifier.py             # EfficientNet-B0 4-class architecture builder
-│   │   ├── train.py                  # Training loop, MLflow logging & ONNX export
-│   │   └── train_baseline.py         # ResNet-18 baseline training script
+│   │   ├── architecture.py           # EfficientNet-B0 4-class network
+│   │   ├── train.py                  # Training loop + MLflow tracking + ONNX export
+│   │   ├── train_baseline.py         # ResNet-18 baseline
+│   │   └── evaluate.py               # Test-set metrics on the ONNX model
 │   └── utils/
-│       └── gradcam.py                # Mathematical Grad-CAM implementation
-├── .dockerignore
-├── .flake8                           # Flake8 linter configuration
-├── .gitignore
-├── docker-compose.yml                # Full-stack container orchestration
+│       └── gradcam.py                # Grad-CAM explainability
+├── backend/                          # FastAPI REST API
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── app/
+│   │   ├── main.py                   # FastAPI instance & routes
+│   │   ├── schemas.py                # Pydantic validation models
+│   │   ├── inference.py              # ONNX Runtime wrapper class
+│   │   └── best_model.onnx           # Copy of the model served by the API
+│   └── tests/
+│       └── test_api.py               # Pytest suite (endpoints, mocks)
+├── frontend/                         # React 18 + Vite + Tailwind
+│   ├── Dockerfile
+│   ├── package.json
+│   └── src/
+│       ├── App.jsx                   # Page layout, state & API calls
+│       ├── services/api.js           # fetch calls to FastAPI
+│       ├── constants/severity.js     # Class names, colours, descriptions
+│       └── components/
+│           ├── Header.jsx            # Title + API health badge
+│           ├── SeverityCard.jsx      # Grade reference cards
+│           ├── Dropzone.jsx          # Drag & drop upload + Analyze button
+│           ├── WebcamCapture.jsx     # Live camera capture
+│           ├── ScanHistory.jsx       # Last 5 analyses
+│           ├── AnalysisStates.jsx    # Empty / loading states
+│           ├── PredictionBanner.jsx  # Predicted grade + confidence ring
+│           ├── GradCamViewer.jsx     # Side-by-side / blended heatmap
+│           └── ProbabilityBars.jsx   # Softmax probability chart
+├── notebooks/
+│   └── 01_eda.ipynb                  # Exploratory data analysis (read-only, outputs saved)
+├── report/                           # LaTeX sources of the technical report
+├── docker-compose.yml                # Local multi-container orchestration
+├── dvc.yaml                          # DVC pipeline: prepare → train → export_onnx → evaluate
+├── params.yaml                       # Training hyperparameters
+├── eval_metrics.json                 # Test-set metrics (DVC metrics file)
+├── .dvcignore / .dockerignore / .gitignore / .flake8
 └── README.md
 ```
 
@@ -69,7 +91,7 @@ SkinWise/
 
 ## Quick Start (Docker Compose)
 
-Launch both the FastAPI ONNX backend and the React/Vite frontend with hot-reloading using a single command:
+Launch the production stack with a single command: the FastAPI + ONNX Runtime backend (no PyTorch, non-root user) and the React app built and served by **nginx**:
 
 ```bash
 docker-compose up --build
@@ -79,6 +101,9 @@ Once running, access the services at:
 - **Frontend Diagnostic UI**: http://localhost:5173
 - **FastAPI Interactive Swagger Docs**: http://localhost:8000/docs
 - **Health Check Endpoint**: http://localhost:8000/health
+
+> The model file `backend/app/best_model.onnx` is not stored in Git: run `dvc pull` (or the training/export
+> steps below) before building, otherwise `/health` reports `degraded` and `/predict` returns 503.
 
 To stop the containers:
 
@@ -103,51 +128,91 @@ source .venv/bin/activate
 
 pip install --upgrade pip
 pip install -r backend/requirements.txt
-pip install torch torchvision mlflow scikit-learn dvc
+pip install torch torchvision mlflow scikit-learn dvc   # training tools
+pip install pytest httpx flake8                          # test tools
 ```
 
 ### 2. Data Versioning with DVC
 
-The dataset expects the four ACNE04 class folders (`acne0_1024` through `acne3_1024`) inside `acne_1024/` or `data/raw/acne_1024/`. To version the dataset with DVC without committing raw images to Git:
+The ACNE04 images live in `data/raw/acne_1024/` and are tracked by DVC (Git only stores the small pointer `data/raw/acne_1024.dvc`).
 
 ```bash
-dvc init
-dvc add data/raw
-git add data/raw.dvc .dvc/config .gitignore
+dvc pull            # download the dataset (and model) from the DVC remote
+dvc dag             # show the pipeline: prepare -> train -> export_onnx -> evaluate
+dvc status          # check which stages are out of date
 ```
 
-### 3. Model Training & ONNX Export
+> The model was trained on a Kaggle GPU. Its outputs are recorded in `dvc.lock`
+> (created with `dvc commit`, without retraining), so `dvc status` reports the pipeline as up to date.
 
-Fine-tune **EfficientNet-B0** (automatically logs metrics/artifacts to `mlruns/` and exports `best_model.pth` and `backend/app/best_model.onnx`):
+**Shared DVC remote (DagsHub, free):** the dataset and models are stored on DagsHub so that
+`dvc pull` works on any machine. One-time setup:
 
 ```bash
-python -m src.models.train \
-  --data-dir acne_1024 \
-  --epochs 15 \
-  --batch-size 32 \
-  --lr 1e-4 \
-  --weight-decay 1e-2 \
-  --output-path best_model.pth \
-  --onnx-path backend/app/best_model.onnx
+# 1. On https://dagshub.com/repo/connect, connect the GitHub repo hedi-laifa/SkinWise-AI
+# 2. Add the remote (shared, committed to Git) and make it the default
+dvc remote add -d origin https://dagshub.com/<dagshub-user>/SkinWise-AI.dvc
+# 3. Credentials stay in .dvc/config.local (git-ignored, never committed)
+dvc remote modify origin --local auth basic
+dvc remote modify origin --local user <dagshub-user>
+dvc remote modify origin --local password <dagshub-token>   # DagsHub > Settings > Tokens
+# 4. Upload the dataset and models
+dvc push
 ```
 
-Train the **ResNet-18** baseline for comparative analysis in MLflow:
+### Exploratory Data Analysis
+
+`notebooks/01_eda.ipynb` explores the dataset (class balance, image properties, colour bias, duplicate images, split check, effect of resizing). Its outputs are saved, so it can be read directly on GitHub. To re-run it:
 
 ```bash
-python -m src.models.train_baseline \
-  --data-dir acne_1024 \
-  --epochs 15 \
-  --batch-size 32 \
-  --lr 1e-4
+pip install jupyter
+jupyter notebook notebooks/01_eda.ipynb
 ```
+
+### 3. Data Split, Training, Evaluation
+
+```bash
+# Write the leak-free split (seed=42, 70/15/15) to data/processed/*.csv
+python -m src.data.dataset
+
+# Fine-tune EfficientNet-B0 (logs to MLflow, saves models/best_model.pth + .onnx)
+python -m src.models.train --data-dir data/raw/acne_1024 --epochs 15 --batch-size 32
+
+# Train the ResNet-18 baseline with the SAME settings as the EfficientNet-B0 run
+# (same split, optimizer, epochs, augmentation) -> MLflow + models/baseline_resnet18.onnx
+python -m src.models.train_baseline --data-dir data/raw/acne_1024 --epochs 15 \
+  --no-color-augmentation --onnx-path models/baseline_resnet18.onnx
+python -m src.models.evaluate --onnx models/baseline_resnet18.onnx \
+  --data-dir data/raw/acne_1024 --output eval_metrics_baseline.json
+
+# Evaluate the ONNX model on the test split -> eval_metrics.json
+python -m src.models.evaluate --onnx models/best_model.onnx --data-dir data/raw/acne_1024
+```
+
+# Weight optimization (no retraining): FP16 + INT8 versions, compared on the test split
+python -m src.models.quantize   # -> models/best_model_{fp16,int8}.onnx + quantization_metrics.json
+```
+
+| Model version | Size | Test accuracy | Test Macro-F1 |
+| :--- | ---: | ---: | ---: |
+| FP32 (served by the API) | 16.0 MB | 77.0 % | 0.729 |
+| FP16 | 8.1 MB | 77.0 % | 0.729 |
+| INT8 (static, depthwise convs kept in FP32) | 5.2 MB | 72.7 % | 0.689 |
+
+**Baseline comparison** (same split, optimizer, epochs and augmentation; only the architecture changes):
+
+| Model | Params | ONNX size | Test accuracy | Test Macro-F1 | F1 *Very Severe* | CPU latency |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: |
+| ResNet-18 (baseline) | 11.2 M | 44.7 MB | 75.6 % | 0.670 | 0.455 | 20.5 ms |
+| **EfficientNet-B0** | **4.0 M** | **16.0 MB** | **77.0 %** | **0.729** | **0.727** | **10.2 ms** |
 
 Launch the **MLflow Tracking UI** to compare runs side-by-side:
 
 ```bash
-mlflow ui --backend-store-uri mlruns --port 5000
+mlflow ui --backend-store-uri sqlite:///mlruns.db --port 5000
 ```
 
-### 4. Running Backend & Frontend Locally (Without Docker)
+### 4. Development Mode (Without Docker, with hot-reload)
 
 **Start the FastAPI Backend (Port 8000):**
 
@@ -180,30 +245,29 @@ npm run dev
 curl -X POST "http://localhost:8000/predict" \
   -H "accept: application/json" \
   -H "Content-Type: multipart/form-data" \
-  -F "file=@acne_1024/acne0_1024/levle0_1.jpg;type=image/jpeg"
+  -F "file=@data/raw/acne_1024/acne0_1024/levle0_1.jpg;type=image/jpeg"
 ```
 
 ---
 
 ## Testing & Code Quality
 
-Run the automated `flake8` linter and `pytest` unit test suite locally (matching the GitHub Actions CI pipeline):
+Run the same checks as the GitHub Actions CI pipeline:
 
 ```bash
-# Lint backend and source modules
+# Python: lint + 16 tests (API endpoints and inference functions, incl. Grad-CAM)
 flake8 backend src --max-line-length=120 --extend-ignore=E203,W503
+pytest backend/tests -v
 
-# Run FastAPI endpoint and validation tests
-pytest backend/tests/test_api.py -v
+# Frontend: ESLint (zero warnings allowed) + production build
+cd frontend
+npm run lint
+npm run build
 ```
 
 ---
 
 ## Technical Report
 
-The LaTeX source for the accompanying academic paper is located at `report/skinwise_technical_report.tex`. Compile it with `pdflatex`:
-
-```bash
-cd report
-pdflatex skinwise_technical_report.tex
-```
+The final report is `rapport_technique.pdf` at the project root. Its LaTeX source is `report/rapport_technique.tex`, with all figures in `report/figures/`. To rebuild it, run `pdflatex rapport_technique.tex` twice from the `report/` folder, or upload the folder to Overleaf.
+# SkinWise-AI
