@@ -73,3 +73,7 @@ Thumbs.db
 
 # Local files waiting to be deleted (never committed)
 _to_delete/
+
+# Local Windows helpers to start/stop the app without Docker (kept on disk, not in Git)
+run_skinwise.bat
+stop_skinwise.bat
