@@ -15,6 +15,7 @@ import torch
 import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.optimizer import Optimizer
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from src.data.dataset import create_dataloaders
@@ -34,7 +35,7 @@ logger = logging.getLogger(__name__)
 class TrainingConfig:
     """Hyperparameters and output paths for EfficientNet-B0 fine-tuning & ONNX export."""
 
-    data_dir: Path = Path("acne_1024")
+    data_dir: Path = Path("data/raw/acne_1024")
     num_classes: int = 4
     learning_rate: float = 1e-4
     weight_decay: float = 1e-2
@@ -45,8 +46,8 @@ class TrainingConfig:
     dropout: float = 0.2
     freeze_backbone: bool = False
     seed: int = 42
-    best_model_path: Path = Path("best_model.pth")
-    best_onnx_path: Path = Path("backend/app/best_model.onnx")
+    best_model_path: Path = Path("models/best_model.pth")
+    best_onnx_path: Path = Path("models/best_model.onnx")
     backend_onnx_path: Path = Path("backend/app/best_model.onnx")
     experiment_name: str = "SkinWise-ACNE04-EfficientNetB0"
     run_name: str = "Advanced-EfficientNetB0"
@@ -185,9 +186,28 @@ def evaluate_one_epoch(
     return avg_loss, accuracy, macro_f1
 
 
+class LogitsAndFeatures(nn.Module):
+    """Wrap EfficientNet-B0 so the ONNX graph returns the logits AND the last conv feature maps.
+
+    The extra `features` output (shape `(N, 1280, 7, 7)`) lets the FastAPI backend compute an
+    exact Grad-CAM with NumPy only: for a GlobalAvgPool + Linear head, the gradient of class
+    score c w.r.t. each feature map is W[c] / (H * W), so no PyTorch/autograd is needed at serving time.
+    """
+
+    def __init__(self, model: nn.Module) -> None:
+        super().__init__()
+        self.model = model
+
+    def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        features = self.model.features(x)
+        pooled = torch.flatten(self.model.avgpool(features), 1)
+        logits = self.model.classifier(pooled)
+        return logits, features
+
+
 def export_model_to_onnx(
-    checkpoint_path: Path | str = Path("best_model.pth"),
-    onnx_output_path: Path | str = Path("best_model.onnx"),
+    checkpoint_path: Path | str = Path("models/best_model.pth"),
+    onnx_output_path: Path | str = Path("models/best_model.onnx"),
     backend_copy_path: Path | str | None = Path("backend/app/best_model.onnx"),
     num_classes: int = 4,
     opset_version: int = 17,
@@ -227,17 +247,18 @@ def export_model_to_onnx(
     dummy_input = torch.randn(1, 3, 224, 224, dtype=torch.float32)
 
     torch.onnx.export(
-        model,
+        LogitsAndFeatures(model),
         dummy_input,
         str(out_path),
         export_params=True,
         opset_version=opset_version,
         do_constant_folding=True,
         input_names=["input"],
-        output_names=["logits"],
+        output_names=["logits", "features"],  # features -> Grad-CAM in the backend without PyTorch
         dynamic_axes={
             "input": {0: "batch_size"},
             "logits": {0: "batch_size"},
+            "features": {0: "batch_size"},
         },
         dynamo=False,
     )
@@ -298,13 +319,26 @@ def train_model(
         freeze_backbone=config.freeze_backbone,
     ).to(device)
 
-    # 2. Setup CrossEntropyLoss and AdamW optimizer
-    criterion = nn.CrossEntropyLoss()
+    # 2. Compute class-balanced loss weights from training label distribution
+    label_counts: Dict[int, int] = {}
+    for _, label in train_loader.dataset.samples:  # type: ignore[union-attr]
+        label_counts[label] = label_counts.get(label, 0) + 1
+    n_total = sum(label_counts.values())
+    n_classes = config.num_classes
+    class_weights = torch.tensor(
+        [n_total / (n_classes * label_counts.get(c, 1)) for c in range(n_classes)],
+        dtype=torch.float32,
+        device=device,
+    )
+    logger.info("Class weights: %s", {c: f"{class_weights[c].item():.3f}" for c in range(n_classes)})
+
+    criterion = nn.CrossEntropyLoss(weight=class_weights)
     optimizer = AdamW(
         filter(lambda p: p.requires_grad, model.parameters()),
         lr=config.learning_rate,
         weight_decay=config.weight_decay,
     )
+    scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs, eta_min=1e-6)
 
     best_model_path = Path(config.best_model_path)
     best_model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -393,6 +427,9 @@ def train_model(
                 val_acc,
                 val_f1,
             )
+
+            scheduler.step()
+            mlflow.log_metric("lr", scheduler.get_last_lr()[0], step=epoch)
 
             # Save best model state dictionary based on validation Macro-F1
             if val_f1 > best_val_f1:
@@ -516,9 +553,7 @@ def _register_and_promote(
 
 def parse_args(argv: Sequence[str] | None = None) -> TrainingConfig:
     """Parse CLI arguments for training and ONNX export."""
-    default_data_dir = (
-        Path("acne_1024") if Path("acne_1024").exists() else Path("data/raw/acne_1024")
-    )
+    default_data_dir = Path("data/raw/acne_1024")
     parser = argparse.ArgumentParser(
         description="Fine-tune EfficientNet-B0 on ACNE04, track with MLflow, and export best_model.onnx."
     )
@@ -536,13 +571,13 @@ def parse_args(argv: Sequence[str] | None = None) -> TrainingConfig:
     parser.add_argument(
         "--output-path",
         type=Path,
-        default=Path("best_model.pth"),
+        default=Path("models/best_model.pth"),
         help="Output path for best PyTorch state dict (best_model.pth).",
     )
     parser.add_argument(
         "--onnx-path",
         type=Path,
-        default=Path("best_model.onnx"),
+        default=Path("models/best_model.onnx"),
         help="Output path for exported ONNX model (best_model.onnx).",
     )
     parser.add_argument(
@@ -573,6 +608,7 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        force=True,  # MLflow configures logging on import; without force the INFO lines are hidden
     )
     config = parse_args()
     train_model(config)

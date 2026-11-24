@@ -1,0 +1,63 @@
+{
+  "accuracy": 0.756,
+  "macro_f1": 0.6702,
+  "f1_per_class": {
+    "Mild (Level 0)": 0.8026,
+    "Moderate (Level 1)": 0.7835,
+    "Severe (Level 2)": 0.64,
+    "Very Severe (Level 3)": 0.4545
+  },
+  "per_class_detail": {
+    "Mild (Level 0)": {
+      "f1": 0.8026,
+      "support": 73,
+      "predicted_as": 79
+    },
+    "Moderate (Level 1)": {
+      "f1": 0.7835,
+      "support": 94,
+      "predicted_as": 100
+    },
+    "Severe (Level 2)": {
+      "f1": 0.64,
+      "support": 27,
+      "predicted_as": 23
+    },
+    "Very Severe (Level 3)": {
+      "f1": 0.4545,
+      "support": 15,
+      "predicted_as": 7
+    }
+  },
+  "confusion_matrix": [
+    [
+      61,
+      12,
+      0,
+      0
+    ],
+    [
+      18,
+      76,
+      0,
+      0
+    ],
+    [
+      0,
+      9,
+      16,
+      2
+    ],
+    [
+      0,
+      3,
+      7,
+      5
+    ]
+  ],
+  "n_samples": 209,
+  "avg_latency_ms": 20.528,
+  "onnx_model": "models/baseline_resnet18.onnx",
+  "data_dir": "data/raw/acne_1024",
+  "split": "stratified_seed42_70-15-15"
+}

@@ -4,7 +4,7 @@ import argparse
 from dataclasses import dataclass
 import logging
 from pathlib import Path
-from typing import Dict, Sequence, Tuple
+from typing import Dict, Optional, Sequence, Tuple
 
 import mlflow
 import mlflow.pytorch
@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 class BaselineTrainingConfig:
     """Hyperparameters and configuration for the ResNet-18 baseline model."""
 
-    data_dir: Path = Path("acne_1024")
+    data_dir: Path = Path("data/raw/acne_1024")
     num_classes: int = 4
     learning_rate: float = 1e-4
     weight_decay: float = 1e-2
@@ -38,11 +38,15 @@ class BaselineTrainingConfig:
     pretrained: bool = True
     freeze_backbone: bool = False
     seed: int = 42
-    best_model_path: Path = Path("baseline_resnet18.pth")
+    best_model_path: Path = Path("models/baseline_resnet18.pth")
     # Shares the exact same default MLflow experiment name as train.py for side-by-side UI comparison
     experiment_name: str = "SkinWise-ACNE04-EfficientNetB0"
     run_name: str = "Baseline-ResNet18"
-    tracking_uri: str = "mlruns"
+    # False reproduces the EfficientNet-B0 Kaggle run (flip + rotation only) for a fair comparison
+    color_augmentation: bool = True
+    # If set, the best checkpoint is exported to ONNX here (evaluated with src/models/evaluate.py)
+    onnx_path: Optional[Path] = None
+    tracking_uri: str = "sqlite:///mlruns.db"  # same store as train.py
 
 
 def build_resnet18_baseline(
@@ -105,6 +109,7 @@ def train_baseline_model(
             num_workers=config.num_workers,
             seed=config.seed,
             pin_memory=torch.cuda.is_available(),
+            color_augmentation=config.color_augmentation,
         )
 
     train_loader = dataloaders["train"]
@@ -165,6 +170,7 @@ def train_baseline_model(
                 "trainable_params": trainable_params,
                 "seed": config.seed,
                 "device": str(device),
+                "color_augmentation": config.color_augmentation,
             }
         )
 
@@ -234,15 +240,44 @@ def train_baseline_model(
 
         if best_model_path.is_file():
             mlflow.log_artifact(str(best_model_path), artifact_path="checkpoints")
+            if config.onnx_path is not None:
+                onnx_file = export_baseline_to_onnx(best_model_path, config.onnx_path, config.num_classes)
+                mlflow.log_artifact(str(onnx_file), artifact_path="onnx")
 
     return model, best_val_f1, best_model_path
 
 
+def export_baseline_to_onnx(
+    checkpoint_path: Path | str,
+    onnx_path: Path | str,
+    num_classes: int = 4,
+    opset_version: int = 17,
+) -> Path:
+    """Export the best ResNet-18 checkpoint to ONNX (logits only) so it is evaluated
+    with exactly the same script and preprocessing as the EfficientNet-B0 model."""
+    model = build_resnet18_baseline(num_classes=num_classes, pretrained=False)
+    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu", weights_only=True))
+    model.eval()
+
+    out_path = Path(onnx_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    torch.onnx.export(
+        model,
+        torch.randn(1, 3, 224, 224),
+        str(out_path),
+        input_names=["input"],
+        output_names=["logits"],
+        dynamic_axes={"input": {0: "batch_size"}, "logits": {0: "batch_size"}},
+        opset_version=opset_version,
+        dynamo=False,
+    )
+    logger.info("Exported ResNet-18 baseline to '%s'.", out_path)
+    return out_path
+
+
 def parse_args(argv: Sequence[str] | None = None) -> BaselineTrainingConfig:
     """Parse CLI arguments for the ResNet-18 baseline training script."""
-    default_data_dir = (
-        Path("acne_1024") if Path("acne_1024").exists() else Path("data/raw/acne_1024")
-    )
+    default_data_dir = Path("data/raw/acne_1024")
     parser = argparse.ArgumentParser(
         description="Train a baseline ResNet-18 model on ACNE04 for comparative MLflow analysis."
     )
@@ -260,7 +295,7 @@ def parse_args(argv: Sequence[str] | None = None) -> BaselineTrainingConfig:
     parser.add_argument(
         "--output-path",
         type=Path,
-        default=Path("baseline_resnet18.pth"),
+        default=Path("models/baseline_resnet18.pth"),
         help="Output path for the best ResNet-18 state dictionary.",
     )
     parser.add_argument(
@@ -276,6 +311,17 @@ def parse_args(argv: Sequence[str] | None = None) -> BaselineTrainingConfig:
         help="MLflow run name displayed in the UI.",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed matching train.py.")
+    parser.add_argument(
+        "--no-color-augmentation",
+        action="store_true",
+        help="Disable ColorJitter/RandomGrayscale (same augmentation as the EfficientNet-B0 Kaggle run).",
+    )
+    parser.add_argument(
+        "--onnx-path",
+        type=Path,
+        default=None,
+        help="Optional output path to export the best checkpoint to ONNX.",
+    )
 
     args = parser.parse_args(argv)
     return BaselineTrainingConfig(
@@ -289,6 +335,8 @@ def parse_args(argv: Sequence[str] | None = None) -> BaselineTrainingConfig:
         best_model_path=args.output_path,
         experiment_name=args.experiment_name,
         run_name=args.run_name,
+        color_augmentation=not args.no_color_augmentation,
+        onnx_path=args.onnx_path,
     )
 
 
@@ -297,6 +345,7 @@ def main() -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+        force=True,  # MLflow configures logging on import; without force the INFO lines are hidden
     )
     config = parse_args()
     train_baseline_model(config)

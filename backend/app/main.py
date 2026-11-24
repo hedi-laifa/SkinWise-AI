@@ -15,6 +15,7 @@ import numpy as np
 import onnxruntime as ort
 from PIL import Image, UnidentifiedImageError
 
+from backend.app.inference import compute_gradcam, load_classifier_weights, render_gradcam_png
 from backend.app.schemas import (
     ErrorResponse,
     HealthResponse,
@@ -42,7 +43,7 @@ ALLOWED_PIL_FORMATS: Set[str] = {"JPEG", "PNG", "MPO"}
 
 CANDIDATE_ONNX_PATHS: tuple[str, ...] = (
     "backend/app/best_model.onnx",
-    "best_model.onnx",
+    "models/best_model.onnx",
 )
 
 
@@ -112,8 +113,11 @@ async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     application.state.onnx_model_path = str(onnx_path)
     if getattr(application.state, "ort_session", None) is None:
         application.state.ort_session = load_onnx_session(onnx_path)
+    if getattr(application.state, "classifier_weights", None) is None and Path(onnx_path).is_file():
+        application.state.classifier_weights = load_classifier_weights(onnx_path)
     yield
     application.state.ort_session = None
+    application.state.classifier_weights = None
 
 
 app = FastAPI(
@@ -134,6 +138,26 @@ app.add_middleware(
 # Initialize default state attributes for test environments that bypass lifespan
 app.state.onnx_model_path = DEFAULT_ONNX_PATH
 app.state.ort_session = None
+app.state.classifier_weights = None
+
+
+def get_session_or_503(request: Request) -> ort.InferenceSession:
+    """Return the loaded ONNX session (loading it lazily), or raise HTTP 503 if the model is missing."""
+    session: Optional[ort.InferenceSession] = getattr(request.app.state, "ort_session", None)
+    onnx_path = getattr(request.app.state, "onnx_model_path", DEFAULT_ONNX_PATH)
+    if session is None and Path(onnx_path).is_file():
+        session = load_onnx_session(onnx_path)
+        request.app.state.ort_session = session
+
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                f"ONNX Runtime model is not loaded. Expected model at '{onnx_path}'. "
+                "Export models/best_model.pth to ONNX first."
+            ),
+        )
+    return session
 
 
 async def validate_and_decode_image(file: UploadFile) -> Image.Image:
@@ -207,44 +231,6 @@ def compute_softmax(logits: np.ndarray) -> np.ndarray:
     return probs.astype(np.float64)
 
 
-def generate_dummy_gradcam_png(image: Image.Image) -> bytes:
-    """Generate a Grad-CAM heatmap overlay on the input image and encode as PNG bytes."""
-    resized = image.resize(INPUT_SIZE, Image.Resampling.BILINEAR)
-    base_rgb = np.asarray(resized, dtype=np.float32)  # (224, 224, 3)
-
-    # Create a smooth spatial activation map combining center Gaussian + red/lesion salience
-    height, width = INPUT_SIZE
-    y_grid, x_grid = np.ogrid[:height, :width]
-    center_y, center_x = height / 2.0, width / 2.0
-    sigma = min(height, width) * 0.32
-    gaussian_mask = np.exp(
-        -((x_grid - center_x) ** 2 + (y_grid - center_y) ** 2) / (2.0 * sigma**2)
-    ).astype(np.float32)
-
-    # Highlight reddish skin inflammation regions modulated by the spatial prior
-    redness = np.clip(
-        (base_rgb[:, :, 0] - 0.5 * (base_rgb[:, :, 1] + base_rgb[:, :, 2])) / 255.0,
-        0.0,
-        1.0,
-    )
-    heatmap = 0.65 * gaussian_mask + 0.35 * redness
-    heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-
-    # Map scalar [0, 1] activation to a Jet-like RGB colormap
-    r_chan = np.clip(1.5 - np.abs(4.0 * heatmap - 3.0), 0.0, 1.0) * 255.0
-    g_chan = np.clip(1.5 - np.abs(4.0 * heatmap - 2.0), 0.0, 1.0) * 255.0
-    b_chan = np.clip(1.5 - np.abs(4.0 * heatmap - 1.0), 0.0, 1.0) * 255.0
-    cmap_rgb = np.stack([r_chan, g_chan, b_chan], axis=-1).astype(np.float32)
-
-    # Alpha-blend original image (60%) and Grad-CAM colormap (40%)
-    blended = np.clip(0.60 * base_rgb + 0.40 * cmap_rgb, 0, 255).astype(np.uint8)
-    overlay_img = Image.fromarray(blended, mode="RGB")
-
-    buffer = io.BytesIO()
-    overlay_img.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
 @app.get(
     "/health",
     response_model=HealthResponse,
@@ -301,23 +287,7 @@ async def predict(
     pil_image = await validate_and_decode_image(file)
     input_tensor = preprocess_image(pil_image)
 
-    session: Optional[ort.InferenceSession] = getattr(
-        request.app.state, "ort_session", None
-    )
-    onnx_path = getattr(request.app.state, "onnx_model_path", DEFAULT_ONNX_PATH)
-    if session is None and Path(onnx_path).is_file():
-        session = load_onnx_session(onnx_path)
-        request.app.state.ort_session = session
-
-    if session is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=(
-                f"ONNX Runtime model is not loaded. Expected model at '{onnx_path}'. "
-                "Export best_model.pth to ONNX first."
-            ),
-        )
-
+    session = get_session_or_503(request)
     input_name: str = session.get_inputs()[0].name
     start_time = time.perf_counter()
     ort_outputs = session.run(None, {input_name: input_tensor})
@@ -360,6 +330,7 @@ async def predict(
             "description": "Grad-CAM heatmap overlay returned as a PNG image.",
         },
         status.HTTP_400_BAD_REQUEST: {"model": ErrorResponse},
+        status.HTTP_503_SERVICE_UNAVAILABLE: {"model": ErrorResponse},
     },
     summary="Generate a Grad-CAM heatmap overlay PNG for an uploaded JPEG/PNG image",
 )
@@ -367,21 +338,41 @@ async def predict_visualize(
     request: Request,
     file: UploadFile = File(..., description="JPEG or PNG facial skin image"),
 ) -> Response:
-    """Validate uploaded image and return a mathematical Grad-CAM heatmap overlay as `image/png`."""
+    """Return the Grad-CAM heatmap of the predicted class, blended over the image, as `image/png`.
+
+    Grad-CAM is computed with ONNX Runtime + NumPy only (no PyTorch): the ONNX model returns
+    the last conv feature maps as a second output, and the class weights come from its final layer.
+    """
     pil_image = await validate_and_decode_image(file)
+    session = get_session_or_503(request)
 
-    try:
-        from src.utils.gradcam import generate_gradcam_png_bytes, load_gradcam_model
+    outputs = session.run(None, {session.get_inputs()[0].name: preprocess_image(pil_image)})
+    if len(outputs) < 2:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "The loaded ONNX model has no 'features' output, so Grad-CAM cannot be computed. "
+                "Re-export it with src.models.train.export_model_to_onnx."
+            ),
+        )
+    logits, features = np.asarray(outputs[0]), np.asarray(outputs[1])
 
-        gradcam_model = getattr(request.app.state, "gradcam_model", None)
-        if gradcam_model is None:
-            gradcam_model = load_gradcam_model(
-                checkpoint_path=os.getenv("PTH_MODEL_PATH", "best_model.pth")
-            )
-            request.app.state.gradcam_model = gradcam_model
+    weights = getattr(request.app.state, "classifier_weights", None)
+    if weights is None:
+        onnx_path = getattr(request.app.state, "onnx_model_path", DEFAULT_ONNX_PATH)
+        weights = load_classifier_weights(onnx_path) if Path(onnx_path).is_file() else None
+        request.app.state.classifier_weights = weights
+    if weights is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Classifier weights could not be read from the ONNX model.",
+        )
 
-        png_bytes = generate_gradcam_png_bytes(image=pil_image, model=gradcam_model)
-    except ImportError:
-        png_bytes = generate_dummy_gradcam_png(pil_image)
-
-    return Response(content=png_bytes, media_type="image/png")
+    pred_idx = int(np.argmax(logits.reshape(-1)))
+    heatmap = compute_gradcam(features[0], weights[pred_idx])
+    png_bytes = render_gradcam_png(pil_image, heatmap)
+    return Response(
+        content=png_bytes,
+        media_type="image/png",
+        headers={"X-Predicted-Class": CLASS_NAMES[pred_idx]},
+    )

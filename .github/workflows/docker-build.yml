@@ -111,6 +111,13 @@ jobs:
           curl --fail --silent --show-error http://localhost:8000/model/metadata | \
             python3 -c "import sys,json; d=json.load(sys.stdin); assert d['num_classes']==4"
 
+      - name: Verify frontend (nginx) serves the app and the example images
+        run: |
+          for i in $(seq 1 10); do curl --fail --silent http://localhost:5173/ > /dev/null && break; sleep 3; done
+          curl --fail --silent --show-error http://localhost:5173/ | grep -q '<div id="root">'
+          curl --fail --silent --show-error -o /dev/null http://localhost:5173/examples/severe.jpg
+          echo "Frontend is served by nginx."
+
       - name: Print container logs on failure
         if: failure()
         run: docker compose logs

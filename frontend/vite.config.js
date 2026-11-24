@@ -7,12 +7,18 @@ import { compile, optimize } from "@tailwindcss/node";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Recursively list every .js/.jsx file under src/ (App.jsx, components/, constants/...)
+function listSourceFiles(dir) {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) return listSourceFiles(full);
+    return /\.(jsx?|tsx?)$/.test(entry.name) ? [full] : [];
+  });
+}
+
 function extractCandidatesFromFiles(rootDir) {
-  const files = [
-    path.join(rootDir, "index.html"),
-    path.join(rootDir, "src", "App.jsx"),
-    path.join(rootDir, "src", "main.jsx"),
-  ];
+  const files = [path.join(rootDir, "index.html"), ...listSourceFiles(path.join(rootDir, "src"))];
   const candidates = new Set();
   const tokenRegex = /[^\s"'`<>={}();,]+/g;
 

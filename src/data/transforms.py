@@ -12,6 +12,7 @@ def get_train_transforms(
     image_size: Tuple[int, int] = IMAGE_SIZE,
     horizontal_flip_prob: float = 0.5,
     rotation_degrees: float = 15.0,
+    color_augmentation: bool = True,
 ) -> transforms.Compose:
     """Build the training transform pipeline with augmentation and ImageNet normalization.
 
@@ -19,19 +20,27 @@ def get_train_transforms(
         image_size: Target spatial dimensions (height, width). Defaults to (224, 224).
         horizontal_flip_prob: Probability of random horizontal flip. Defaults to 0.5.
         rotation_degrees: Maximum absolute degrees for slight random rotation. Defaults to 15.0.
+        color_augmentation: If True, adds ColorJitter + RandomGrayscale. Set it to False to
+            reproduce the setup of the EfficientNet-B0 run trained on Kaggle (flip + rotation only).
 
     Returns:
         A torchvision.transforms.Compose pipeline for training data.
     """
-    return transforms.Compose(
-        [
-            transforms.Resize(image_size),
-            transforms.RandomHorizontalFlip(p=horizontal_flip_prob),
-            transforms.RandomRotation(degrees=rotation_degrees),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    steps = [
+        transforms.Resize(image_size, antialias=False),
+        transforms.RandomHorizontalFlip(p=horizontal_flip_prob),
+        transforms.RandomRotation(degrees=rotation_degrees),
+    ]
+    if color_augmentation:
+        steps += [
+            transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
+            transforms.RandomGrayscale(p=0.05),
         ]
-    )
+    steps += [
+        transforms.ToTensor(),
+        transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
+    ]
+    return transforms.Compose(steps)
 
 
 def get_val_test_transforms(
@@ -47,7 +56,7 @@ def get_val_test_transforms(
     """
     return transforms.Compose(
         [
-            transforms.Resize(image_size),
+            transforms.Resize(image_size, antialias=False),
             transforms.ToTensor(),
             transforms.Normalize(mean=IMAGENET_MEAN, std=IMAGENET_STD),
         ]

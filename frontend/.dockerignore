@@ -1,0 +1,6 @@
+# Keep the frontend build context small and avoid copying Windows node_modules into Linux images
+node_modules/
+dist/
+*.log
+Dockerfile*
+.dockerignore

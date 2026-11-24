@@ -1,15 +1,20 @@
-# Exclude large datasets, virtual environments, and git/dvc caches from Docker build context
+# Build context of the backend image (docker-compose context: project root).
+# Only backend/ is copied into the image, so everything else is excluded to keep builds fast.
 .git
+.github
 .dvc
-data/
-acne_1024/
-sim_acne.csv
-mlruns/
-venv/
 .venv/
+venv/
 env/
+data/
+models/
+notebooks/
+report/
+frontend/
+mlruns/
+mlruns.db
+*.pdf
 __pycache__/
 *.pyc
-node_modules/
-frontend/node_modules/
-frontend/dist/
+.pytest_cache/
+backend/tests/

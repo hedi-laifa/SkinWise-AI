@@ -1,41 +1,96 @@
+# SkinWise AI - reproducible DVC pipeline
+# Run everything:        dvc repro
+# Show the pipeline:     dvc dag
+# NOTE: the model was trained on a Kaggle GPU. To record the existing outputs
+# without retraining, run `dvc commit` instead of `dvc repro`.
+
 stages:
   prepare:
-    cmd: python src/data/dataset.py
+    cmd: python -m src.data.dataset --data-dir data/raw/acne_1024 --output-dir data/processed
     deps:
-      - acne_1024
-      - src/data/dataset.py
-    outs:
-      - data/processed
-
-  train:
-    cmd: python src/models/train.py --data-dir acne_1024 --epochs 15 --batch-size 32
-    deps:
-      - acne_1024
-      - src/models/train.py
-      - src/models/architecture.py
+      - data/raw/acne_1024
       - src/data/dataset.py
     params:
-      - params.yaml:
-          - train.epochs
-          - train.batch_size
-          - train.learning_rate
-          - train.weight_decay
-          - train.seed
+      - train.seed
     outs:
-      - best_model.pth:
-          cache: true
-    metrics:
-      - metrics.json:
-          cache: false
+      - data/processed/train.csv
+      - data/processed/val.csv
+      - data/processed/test.csv
+
+  train:
+    cmd: python -m src.models.train --data-dir data/raw/acne_1024 --epochs 15 --batch-size 32 --output-path models/best_model.pth --onnx-path models/best_model.onnx
+    deps:
+      - data/raw/acne_1024
+      - data/processed/train.csv
+      - data/processed/val.csv
+      - src/data/dataset.py
+      - src/data/transforms.py
+      - src/models/architecture.py
+      - src/models/train.py
+    params:
+      - train.epochs
+      - train.batch_size
+      - train.learning_rate
+      - train.weight_decay
+      - train.seed
+    outs:
+      - models/best_model.pth
 
   export_onnx:
-    cmd: python -c "from src.models.train import export_model_to_onnx; export_model_to_onnx('best_model.pth', 'best_model.onnx', 'backend/app/best_model.onnx')"
+    cmd: python -c "from src.models.train import export_model_to_onnx; export_model_to_onnx('models/best_model.pth', 'models/best_model.onnx', 'backend/app/best_model.onnx')"
     deps:
-      - best_model.pth
-      - src/models/train.py
+      - models/best_model.pth
       - src/models/architecture.py
+      - src/models/train.py
     outs:
-      - best_model.onnx:
-          cache: true
+      - models/best_model.onnx
       - backend/app/best_model.onnx:
+          cache: false
+
+  evaluate:
+    cmd: python -m src.models.evaluate --onnx models/best_model.onnx --data-dir data/raw/acne_1024 --output eval_metrics.json
+    deps:
+      - models/best_model.onnx
+      - data/processed/test.csv
+      - src/models/evaluate.py
+    metrics:
+      - eval_metrics.json:
+          cache: false
+
+  quantize:     # FP16 + INT8 versions of the model, compared on the test split (no retraining)
+    cmd: python -m src.models.quantize --onnx models/best_model.onnx --data-dir data/raw/acne_1024
+    deps:
+      - models/best_model.onnx
+      - data/processed/train.csv
+      - data/processed/test.csv
+      - src/models/quantize.py
+      - src/models/evaluate.py
+    outs:
+      - models/best_model_fp16.onnx
+      - models/best_model_int8.onnx
+    metrics:
+      - quantization_metrics.json:
+          cache: false
+
+  train_baseline:   # ResNet-18 baseline, SAME settings as the EfficientNet-B0 run (only the architecture changes)
+    cmd: python -m src.models.train_baseline --data-dir data/raw/acne_1024 --epochs 15 --batch-size 32 --no-color-augmentation --output-path models/baseline_resnet18.pth --onnx-path models/baseline_resnet18.onnx
+    deps:
+      - data/raw/acne_1024
+      - data/processed/train.csv
+      - data/processed/val.csv
+      - src/data/dataset.py
+      - src/data/transforms.py
+      - src/models/train_baseline.py
+    outs:
+      - models/baseline_resnet18.pth
+      - models/baseline_resnet18.onnx
+
+  evaluate_baseline:
+    cmd: python -m src.models.evaluate --onnx models/baseline_resnet18.onnx --data-dir data/raw/acne_1024 --output eval_metrics_baseline.json
+    deps:
+      - models/baseline_resnet18.onnx
+      - data/processed/test.csv
+      - src/models/evaluate.py
+    metrics:
+      - eval_metrics_baseline.json:
           cache: false

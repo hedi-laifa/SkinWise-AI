@@ -31,8 +31,35 @@ jobs:
         run: |
           flake8 backend src --max-line-length=120 --extend-ignore=E203,W503
 
-      - name: Execute FastAPI pytest suite
+      - name: Execute pytest suite (API endpoints + inference functions)
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: |
-          pytest backend/tests/test_api.py -v
+          pytest backend/tests -v
+
+  frontend-lint:
+    name: Frontend Lint (ESLint) & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Build production bundle
+        run: npm run build

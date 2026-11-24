@@ -279,7 +279,7 @@ def generate_gradcam_png_bytes(
 
 
 def load_gradcam_model(
-    checkpoint_path: Union[str, Path] = Path("best_model.pth"),
+    checkpoint_path: Union[str, Path] = Path("models/best_model.pth"),
     num_classes: int = 4,
     device: Union[str, torch.device] = "cpu",
 ) -> nn.Module:

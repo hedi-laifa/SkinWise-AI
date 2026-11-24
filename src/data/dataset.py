@@ -343,6 +343,7 @@ def create_dataloaders(
     test_ratio: float = 0.15,
     seed: int = 42,
     pin_memory: bool = True,
+    color_augmentation: bool = True,
 ) -> Dict[str, DataLoader[Tuple[torch.Tensor, int]]]:
     """Create leak-free Train, Validation, and Test DataLoaders for ACNE04.
 
@@ -360,6 +361,7 @@ def create_dataloaders(
         test_ratio: Fraction of data for testing.
         seed: Random seed for reproducible stratified splitting.
         pin_memory: Whether to pin CUDA memory in DataLoaders.
+        color_augmentation: Passed to `get_train_transforms` (ColorJitter + RandomGrayscale).
 
     Returns:
         Dictionary mapping `'train'`, `'val'`, and `'test'` to their DataLoaders.
@@ -376,7 +378,7 @@ def create_dataloaders(
     train_dataset = ACNE04Dataset(
         root_dir=root_dir,
         samples=train_samples,
-        transform=get_train_transforms(),
+        transform=get_train_transforms(color_augmentation=color_augmentation),
     )
     val_dataset = ACNE04Dataset(
         root_dir=root_dir,
@@ -412,3 +414,47 @@ def create_dataloaders(
             pin_memory=pin_memory,
         ),
     }
+
+
+def export_split_csvs(
+    root_dir: Union[str, Path] = Path("data/raw/acne_1024"),
+    output_dir: Union[str, Path] = Path("data/processed"),
+    seed: int = 42,
+) -> Dict[str, Path]:
+    """Write the train/val/test split to CSV files (DVC `prepare` stage).
+
+    The CSVs record exactly which image belongs to which split, so the split can be
+    audited and is versioned by DVC alongside the raw data.
+    """
+    import csv
+
+    root = Path(root_dir)
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    base = ACNE04Dataset(root_dir=root, transform=None)
+    splits = dict(zip(("train", "val", "test"), stratified_split_samples(base.samples, seed=seed)))
+
+    written: Dict[str, Path] = {}
+    for name, items in splits.items():
+        csv_path = out / f"{name}.csv"
+        with csv_path.open("w", newline="", encoding="utf-8") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(["image_path", "label", "class_name"])
+            for img_path, label in items:
+                writer.writerow([Path(img_path).relative_to(root).as_posix(), label, CLASS_IDX_TO_NAME[label]])
+        written[name] = csv_path
+        logger.info("Wrote %d samples to '%s'.", len(items), csv_path)
+    return written
+
+
+if __name__ == "__main__":
+    import argparse
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s - %(message)s", force=True)
+    cli = argparse.ArgumentParser(description="Create the leak-free ACNE04 split CSVs (DVC prepare stage).")
+    cli.add_argument("--data-dir", type=Path, default=Path("data/raw/acne_1024"))
+    cli.add_argument("--output-dir", type=Path, default=Path("data/processed"))
+    cli.add_argument("--seed", type=int, default=42)
+    cli_args = cli.parse_args()
+    export_split_csvs(cli_args.data_dir, cli_args.output_dir, cli_args.seed)

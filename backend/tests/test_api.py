@@ -17,8 +17,15 @@ class _DummyOrtInput:
         self.name = name
 
 
+N_FEATURE_CHANNELS = 8  # small stand-in for EfficientNet-B0's 1280 channels
+
+
 class _MockOrtSession:
-    """Deterministic mock of `onnxruntime.InferenceSession` for unit testing."""
+    """Deterministic mock of `onnxruntime.InferenceSession` for unit testing.
+
+    Like the real exported model, it returns two outputs: the logits and the
+    last conv feature maps (used by /predict/visualize for Grad-CAM).
+    """
 
     def get_inputs(self) -> List[_DummyOrtInput]:
         return [_DummyOrtInput(name="input")]
@@ -29,7 +36,16 @@ class _MockOrtSession:
         assert tensor.dtype == np.float32
         # Return deterministic 4-class logits favoring index 1 ("Moderate (Level 1)")
         logits = np.array([[0.2, 1.8, -0.4, -1.1]], dtype=np.float32)
-        return [logits]
+        features = np.zeros((1, N_FEATURE_CHANNELS, 7, 7), dtype=np.float32)
+        features[0, :, 0, 0] = 5.0  # all activation in the top-left cell of the 7x7 grid
+        return [logits, features]
+
+
+class _LogitsOnlySession(_MockOrtSession):
+    """Mock of an old ONNX export that has no 'features' output."""
+
+    def run(self, output_names: Any, input_feed: dict[str, np.ndarray]) -> List[np.ndarray]:
+        return super().run(output_names, input_feed)[:1]
 
 
 def _create_test_image_bytes(fmt: str = "PNG", size: tuple[int, int] = (256, 256)) -> bytes:
@@ -45,6 +61,7 @@ def client() -> TestClient:
     """Provide a FastAPI TestClient with a deterministic ONNX session attached."""
     app.state.ort_session = _MockOrtSession()
     app.state.onnx_model_path = "backend/app/best_model.onnx"
+    app.state.classifier_weights = np.ones((4, N_FEATURE_CHANNELS), dtype=np.float32)
     return TestClient(app)
 
 
@@ -129,3 +146,31 @@ def test_predict_visualize_returns_png_heatmap(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert response.content.startswith(b"\x89PNG\r\n\x1a\n")
+    assert response.headers["x-predicted-class"] == "Moderate (Level 1)"
+
+
+def test_predict_visualize_heatmap_follows_model_activations(client: TestClient) -> None:
+    """The heatmap must be computed from the model's feature maps, not drawn at a fixed place.
+
+    The mock model activates only the top-left cell, so the top-left of the overlay must be
+    red (high activation) and the bottom-right blue (low activation).
+    """
+    uniform_grey = Image.new("RGB", (224, 224), color=(128, 128, 128))
+    buf = io.BytesIO()
+    uniform_grey.save(buf, format="PNG")
+    files = {"file": ("grey.png", io.BytesIO(buf.getvalue()), "image/png")}
+
+    response = client.post("/predict/visualize", files=files)
+    overlay = np.asarray(Image.open(io.BytesIO(response.content)).convert("RGB"), dtype=np.int32)
+    top_left, bottom_right = overlay[5, 5], overlay[218, 218]
+    assert top_left[0] > top_left[2], "top-left should be red (high activation)"
+    assert bottom_right[2] > bottom_right[0], "bottom-right should be blue (low activation)"
+
+
+def test_predict_visualize_returns_503_without_feature_output(client: TestClient) -> None:
+    """An ONNX model without the 'features' output must give a clear 503, never a fake heatmap."""
+    app.state.ort_session = _LogitsOnlySession()
+    files = {"file": ("sample.png", io.BytesIO(_create_test_image_bytes()), "image/png")}
+    response = client.post("/predict/visualize", files=files)
+    assert response.status_code == 503
+    assert "features" in response.json()["detail"]

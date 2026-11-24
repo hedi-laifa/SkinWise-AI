@@ -1,0 +1,29 @@
+{
+  "fp32": {
+    "file": "models/best_model.onnx",
+    "size_mb": 16.04,
+    "accuracy": 0.7703,
+    "macro_f1": 0.7292,
+    "avg_latency_ms": 10.199,
+    "size_vs_fp32": 1.0,
+    "speedup_vs_fp32": 1.0
+  },
+  "fp16": {
+    "file": "models/best_model_fp16.onnx",
+    "size_mb": 8.08,
+    "accuracy": 0.7703,
+    "macro_f1": 0.7292,
+    "avg_latency_ms": 10.512,
+    "size_vs_fp32": 0.504,
+    "speedup_vs_fp32": 0.97
+  },
+  "int8": {
+    "file": "models/best_model_int8.onnx",
+    "size_mb": 5.2,
+    "accuracy": 0.7273,
+    "macro_f1": 0.6885,
+    "avg_latency_ms": 11.889,
+    "size_vs_fp32": 0.324,
+    "speedup_vs_fp32": 0.86
+  }
+}

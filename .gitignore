@@ -6,12 +6,12 @@
 # Ignore everything inside data/, except DVC pointer files (.dvc) and .gitignore
 /data/**
 !/data/
+!/data/**/
 !/data/**/*.dvc
 !/data/**/.gitignore
 
-# Also ignore existing raw dataset files if still in project root
-/acne_1024/
-/sim_acne.csv
+# Model weights live in models/ (versioned via DVC, never Git)
+/models/
 
 # 2. Model weights & serialized artifacts (explicitly blocked in src/, backend/, and globally)
 src/**/*.pth
@@ -70,3 +70,6 @@ htmlcov/
 !.env.example
 .DS_Store
 Thumbs.db
+
+# Local files waiting to be deleted (never committed)
+_to_delete/

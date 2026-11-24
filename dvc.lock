@@ -1,0 +1,221 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -m src.data.dataset --data-dir data/raw/acne_1024 --output-dir 
+      data/processed
+    deps:
+    - path: data/raw/acne_1024
+      hash: md5
+      md5: 7b0d10a46182bda0913e5a35fc185520.dir
+      size: 158175338
+      nfiles: 1378
+    - path: src/data/dataset.py
+      hash: md5
+      md5: b3497867af77e26857c8e58955312c46
+      size: 16824
+    params:
+      params.yaml:
+        train.seed: 42
+    outs:
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 86ecd750811457da314addf65ffc98b1
+      size: 9689
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 2ef81a803a5a03a65721aaf154b723cb
+      size: 44643
+    - path: data/processed/val.csv
+      hash: md5
+      md5: c547607dbbe2959cd3e941e458a227ae
+      size: 9523
+  train:
+    cmd: python -m src.models.train --data-dir data/raw/acne_1024 --epochs 15 
+      --batch-size 32 --output-path models/best_model.pth --onnx-path 
+      models/best_model.onnx
+    deps:
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 2ef81a803a5a03a65721aaf154b723cb
+      size: 44643
+    - path: data/processed/val.csv
+      hash: md5
+      md5: c547607dbbe2959cd3e941e458a227ae
+      size: 9523
+    - path: data/raw/acne_1024
+      hash: md5
+      md5: 7b0d10a46182bda0913e5a35fc185520.dir
+      size: 158175338
+      nfiles: 1378
+    - path: src/data/dataset.py
+      hash: md5
+      md5: b3497867af77e26857c8e58955312c46
+      size: 16824
+    - path: src/data/transforms.py
+      hash: md5
+      md5: b3be9f7640dae11b132e803b0f01bbe9
+      size: 3228
+    - path: src/models/architecture.py
+      hash: md5
+      md5: f405620ef1c9fd51f0163de80880be74
+      size: 2554
+    - path: src/models/train.py
+      hash: md5
+      md5: f6ab659856fea69f9629c76282499ab1
+      size: 22206
+    params:
+      params.yaml:
+        train.batch_size: 32
+        train.epochs: 15
+        train.learning_rate: 0.0001
+        train.seed: 42
+        train.weight_decay: 0.01
+    outs:
+    - path: models/best_model.pth
+      hash: md5
+      md5: 138afa9e5afccc5e9ea40c93c90cec06
+      size: 16350201
+  export_onnx:
+    cmd: python -c "from src.models.train import export_model_to_onnx; 
+      export_model_to_onnx('models/best_model.pth', 'models/best_model.onnx', 
+      'backend/app/best_model.onnx')"
+    deps:
+    - path: models/best_model.pth
+      hash: md5
+      md5: 138afa9e5afccc5e9ea40c93c90cec06
+      size: 16350201
+    - path: src/models/architecture.py
+      hash: md5
+      md5: f405620ef1c9fd51f0163de80880be74
+      size: 2554
+    - path: src/models/train.py
+      hash: md5
+      md5: f6ab659856fea69f9629c76282499ab1
+      size: 22206
+    outs:
+    - path: backend/app/best_model.onnx
+      hash: md5
+      md5: 0b611125eb1e497b06a1c8f157eed61c
+      size: 16041465
+    - path: models/best_model.onnx
+      hash: md5
+      md5: 0b611125eb1e497b06a1c8f157eed61c
+      size: 16041465
+  evaluate:
+    cmd: python -m src.models.evaluate --onnx models/best_model.onnx --data-dir 
+      data/raw/acne_1024 --output eval_metrics.json
+    deps:
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 86ecd750811457da314addf65ffc98b1
+      size: 9689
+    - path: models/best_model.onnx
+      hash: md5
+      md5: 0b611125eb1e497b06a1c8f157eed61c
+      size: 16041465
+    - path: src/models/evaluate.py
+      hash: md5
+      md5: 4b727b968326644385fc3dc97a1c6dbb
+      size: 6947
+    outs:
+    - path: eval_metrics.json
+      hash: md5
+      md5: 66060ad245fb1147f647a1de92b2e3ce
+      size: 1083
+  quantize:
+    cmd: python -m src.models.quantize --onnx models/best_model.onnx --data-dir 
+      data/raw/acne_1024
+    deps:
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 86ecd750811457da314addf65ffc98b1
+      size: 9689
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 2ef81a803a5a03a65721aaf154b723cb
+      size: 44643
+    - path: models/best_model.onnx
+      hash: md5
+      md5: 0b611125eb1e497b06a1c8f157eed61c
+      size: 16041465
+    - path: src/models/evaluate.py
+      hash: md5
+      md5: 4b727b968326644385fc3dc97a1c6dbb
+      size: 6947
+    - path: src/models/quantize.py
+      hash: md5
+      md5: 749dc66e6347496a36bbe3aa69db2323
+      size: 7132
+    outs:
+    - path: models/best_model_fp16.onnx
+      hash: md5
+      md5: e7f348b991d668e94d51d1c850a69cc3
+      size: 8084167
+    - path: models/best_model_int8.onnx
+      hash: md5
+      md5: 0b0cdf94c2f7ab9b6b79d93647657e99
+      size: 5200788
+    - path: quantization_metrics.json
+      hash: md5
+      md5: 0f91c25f5dd5f42960ffe765318167fc
+      size: 636
+  train_baseline:
+    cmd: python -m src.models.train_baseline --data-dir data/raw/acne_1024 
+      --epochs 15 --batch-size 32 --no-color-augmentation --output-path 
+      models/baseline_resnet18.pth --onnx-path models/baseline_resnet18.onnx
+    deps:
+    - path: data/processed/train.csv
+      hash: md5
+      md5: 2ef81a803a5a03a65721aaf154b723cb
+      size: 44643
+    - path: data/processed/val.csv
+      hash: md5
+      md5: c547607dbbe2959cd3e941e458a227ae
+      size: 9523
+    - path: data/raw/acne_1024
+      hash: md5
+      md5: 7b0d10a46182bda0913e5a35fc185520.dir
+      size: 158175338
+      nfiles: 1378
+    - path: src/data/dataset.py
+      hash: md5
+      md5: b3497867af77e26857c8e58955312c46
+      size: 16824
+    - path: src/data/transforms.py
+      hash: md5
+      md5: b3be9f7640dae11b132e803b0f01bbe9
+      size: 3228
+    - path: src/models/train_baseline.py
+      hash: md5
+      md5: 746ac34ecf550686d9fde1c878dc6dd9
+      size: 13059
+    outs:
+    - path: models/baseline_resnet18.onnx
+      hash: md5
+      md5: b6694cd23c5bb7004ba36c364a59c8ee
+      size: 44704772
+    - path: models/baseline_resnet18.pth
+      hash: md5
+      md5: cd301cd46ecea37889c003404e686104
+      size: 44793035
+  evaluate_baseline:
+    cmd: python -m src.models.evaluate --onnx models/baseline_resnet18.onnx 
+      --data-dir data/raw/acne_1024 --output eval_metrics_baseline.json
+    deps:
+    - path: data/processed/test.csv
+      hash: md5
+      md5: 86ecd750811457da314addf65ffc98b1
+      size: 9689
+    - path: models/baseline_resnet18.onnx
+      hash: md5
+      md5: b6694cd23c5bb7004ba36c364a59c8ee
+      size: 44704772
+    - path: src/models/evaluate.py
+      hash: md5
+      md5: 4b727b968326644385fc3dc97a1c6dbb
+      size: 6947
+    outs:
+    - path: eval_metrics_baseline.json
+      hash: md5
+      md5: 89ca18828404c6b49d470c79b6853958
+      size: 1026

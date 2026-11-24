@@ -1,0 +1,63 @@
+{
+  "accuracy": 0.7703,
+  "macro_f1": 0.7292,
+  "f1_per_class": {
+    "Mild (Level 0)": 0.8188,
+    "Moderate (Level 1)": 0.7872,
+    "Severe (Level 2)": 0.5833,
+    "Very Severe (Level 3)": 0.7273
+  },
+  "per_class_detail": {
+    "Mild (Level 0)": {
+      "f1": 0.8188,
+      "support": 73,
+      "predicted_as": 76
+    },
+    "Moderate (Level 1)": {
+      "f1": 0.7872,
+      "support": 94,
+      "predicted_as": 94
+    },
+    "Severe (Level 2)": {
+      "f1": 0.5833,
+      "support": 27,
+      "predicted_as": 21
+    },
+    "Very Severe (Level 3)": {
+      "f1": 0.7273,
+      "support": 15,
+      "predicted_as": 18
+    }
+  },
+  "confusion_matrix": [
+    [
+      61,
+      12,
+      0,
+      0
+    ],
+    [
+      15,
+      74,
+      4,
+      1
+    ],
+    [
+      0,
+      8,
+      14,
+      5
+    ],
+    [
+      0,
+      0,
+      3,
+      12
+    ]
+  ],
+  "n_samples": 209,
+  "avg_latency_ms": 12.826,
+  "onnx_model": "backend/app/best_model.onnx",
+  "data_dir": "acne_1024",
+  "split": "stratified_seed42_70-15-15"
+}

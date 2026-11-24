@@ -1,6 +1,9 @@
 # ==============================================================================
-# SkinWise AI - Full-Stack Docker Compose Orchestration (with Hot-Reloading)
+# SkinWise AI - Production stack
 # Launch with: docker-compose up --build
+#   Frontend : http://localhost:5173   (nginx serving the React build)
+#   Backend  : http://localhost:8000   (Swagger docs: /docs)
+# For development with hot-reload, run the services without Docker (see README).
 # ==============================================================================
 
 services:
@@ -9,16 +12,12 @@ services:
       context: .
       dockerfile: backend/Dockerfile
       target: runtime
+    image: skinwise-backend:latest
     container_name: skinwise-backend
     ports:
       - "8000:8000"
     environment:
-      - PYTHONUNBUFFERED=1
-      - PYTHONPATH=/app
       - ONNX_MODEL_PATH=/app/backend/app/best_model.onnx
-    volumes:
-      - ./backend:/app/backend
-      - ./src:/app/src
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 15s
@@ -34,20 +33,21 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       target: runtime
+      args:
+        # The browser calls the API directly on the host's port 8000
+        VITE_API_BASE_URL: http://localhost:8000
+    image: skinwise-frontend:latest
     container_name: skinwise-frontend
     ports:
-      - "5173:5173"
-    environment:
-      - VITE_API_BASE_URL=http://localhost:8000
-      - BACKEND_INTERNAL_URL=http://backend:8000
-      - CHOKIDAR_USEPOLLING=true
-    volumes:
-      - ./frontend/src:/app/src
-      - ./frontend/index.html:/app/index.html
-      - /app/node_modules
+      - "5173:80"
     depends_on:
       backend:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
     networks:
       - skinwise-net
     restart: unless-stopped
