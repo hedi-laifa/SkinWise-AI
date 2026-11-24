@@ -117,8 +117,4 @@ npm run lint
 npm run build
 ```
 
-## Dataset
 
-ACNE04 (Wu et al., ICCV 2019), 1,378 face images graded on the Hayashi scale: https://github.com/xpwu95/LDL
-
-This is a student project, not a medical tool.
